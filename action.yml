@@ -11,11 +11,28 @@ branding:
 
 # Define your inputs here.
 inputs:
-  # GitHub Configuration
+  # GitHub Authentication - Choose ONE method
   github-token:
-    description: 'GitHub token for accessing repository and security alerts'
-    required: true
+    description:
+      'GitHub token for accessing repository and security alerts (PAT or
+      GITHUB_TOKEN)'
+    required: false
     default: ${{ github.token }}
+
+  # GitHub App Authentication (Alternative to github-token)
+  github-app-id:
+    description:
+      'GitHub App ID for authentication (alternative to github-token)'
+    required: false
+  github-app-private-key:
+    description:
+      'GitHub App private key for authentication (alternative to github-token)'
+    required: false
+  github-app-installation-id:
+    description:
+      'GitHub App installation ID for authentication (alternative to
+      github-token)'
+    required: false
 
   # Jira Configuration
   jira-url:

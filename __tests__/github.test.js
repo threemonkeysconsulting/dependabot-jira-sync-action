@@ -7,7 +7,8 @@ import { jest } from '@jest/globals'
 const mockCore = {
   info: jest.fn(),
   error: jest.fn(),
-  warning: jest.fn()
+  warning: jest.fn(),
+  getInput: jest.fn()
 }
 
 // Mock @actions/github
@@ -25,6 +26,11 @@ const mockGetOctokit = jest.fn(() => mockOctokit)
 jest.unstable_mockModule('@actions/core', () => mockCore)
 jest.unstable_mockModule('@actions/github', () => ({
   getOctokit: mockGetOctokit
+}))
+jest.unstable_mockModule('jsonwebtoken', () => ({
+  default: {
+    sign: jest.fn(() => 'mock-jwt-token')
+  }
 }))
 
 // Import the functions we want to test
@@ -90,15 +96,21 @@ describe('GitHub API Functions', () => {
       mockOctokit.rest.dependabot.listAlertsForRepo.mockResolvedValue({
         data: mockAlertsOpen
       })
+
+      // Mock token authentication (default)
+      mockCore.getInput.mockImplementation((name) => {
+        if (name === 'github-token') return 'mock-token'
+        return ''
+      })
     })
 
     it('should fetch alerts and filter by severity threshold', async () => {
-      const result = await getDependabotAlerts('token', 'owner', 'repo', {
+      const result = await getDependabotAlerts('owner', 'repo', {
         severityThreshold: 'medium',
         excludeDismissed: true
       })
 
-      expect(mockGetOctokit).toHaveBeenCalledWith('token')
+      expect(mockGetOctokit).toHaveBeenCalledWith('mock-token')
       expect(
         mockOctokit.rest.dependabot.listAlertsForRepo
       ).toHaveBeenCalledWith({
@@ -120,7 +132,7 @@ describe('GitHub API Functions', () => {
         data: mockAlertsAll
       })
 
-      const result = await getDependabotAlerts('token', 'owner', 'repo', {
+      const result = await getDependabotAlerts('owner', 'repo', {
         excludeDismissed: false,
         severityThreshold: 'low'
       })
@@ -140,7 +152,7 @@ describe('GitHub API Functions', () => {
 
     it('should handle invalid severity threshold', async () => {
       await expect(
-        getDependabotAlerts('token', 'owner', 'repo', {
+        getDependabotAlerts('owner', 'repo', {
           severityThreshold: 'invalid'
         })
       ).rejects.toThrow('Invalid severity threshold: invalid')
@@ -150,9 +162,9 @@ describe('GitHub API Functions', () => {
       const apiError = new Error('API rate limit exceeded')
       mockOctokit.rest.dependabot.listAlertsForRepo.mockRejectedValue(apiError)
 
-      await expect(
-        getDependabotAlerts('token', 'owner', 'repo')
-      ).rejects.toThrow('API rate limit exceeded')
+      await expect(getDependabotAlerts('owner', 'repo')).rejects.toThrow(
+        'API rate limit exceeded'
+      )
 
       expect(mockCore.error).toHaveBeenCalledWith(
         'Failed to fetch Dependabot alerts: API rate limit exceeded'

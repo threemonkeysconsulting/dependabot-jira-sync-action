@@ -1,5 +1,85 @@
 import * as core from '@actions/core'
 import { getOctokit } from '@actions/github'
+import jwt from 'jsonwebtoken'
+
+/**
+ * Generate JWT token for GitHub App authentication
+ * @param {string} appId - GitHub App ID
+ * @param {string} privateKey - GitHub App private key
+ * @returns {string} JWT token
+ */
+function generateJWT(appId, privateKey) {
+  const now = Math.floor(Date.now() / 1000)
+  const payload = {
+    iat: now - 60, // Issued 1 minute ago
+    exp: now + 600, // Expires in 10 minutes
+    iss: appId
+  }
+
+  // Handle both PEM format and base64 encoded keys
+  let formattedKey = privateKey
+  if (!privateKey.includes('BEGIN')) {
+    // If it's base64 encoded, decode it
+    formattedKey = Buffer.from(privateKey, 'base64').toString('utf8')
+  }
+
+  return jwt.sign(payload, formattedKey, { algorithm: 'RS256' })
+}
+
+/**
+ * Get installation access token for GitHub App
+ * @param {string} appId - GitHub App ID
+ * @param {string} privateKey - GitHub App private key
+ * @param {string} installationId - Installation ID
+ * @returns {Promise<string>} Installation access token
+ */
+async function getInstallationToken(appId, privateKey, installationId) {
+  const jwtToken = generateJWT(appId, privateKey)
+  const octokit = getOctokit(jwtToken)
+
+  core.info(
+    `Getting installation token for App ID: ${appId}, Installation: ${installationId}`
+  )
+
+  try {
+    const response = await octokit.rest.apps.createInstallationAccessToken({
+      installation_id: parseInt(installationId, 10)
+    })
+
+    return response.data.token
+  } catch (error) {
+    throw new Error(`Failed to get installation token: ${error.message}`)
+  }
+}
+
+/**
+ * Determine authentication method and get appropriate token
+ * @returns {Promise<string>} GitHub access token
+ */
+export async function getGitHubToken() {
+  const appId = core.getInput('github-app-id')
+  const privateKey = core.getInput('github-app-private-key')
+  const installationId = core.getInput('github-app-installation-id')
+  const token = core.getInput('github-token')
+
+  // Check if GitHub App credentials are provided
+  if (appId && privateKey && installationId) {
+    core.info('🔑 Using GitHub App authentication')
+    return await getInstallationToken(appId, privateKey, installationId)
+  }
+
+  // Fall back to PAT/GITHUB_TOKEN
+  if (token) {
+    core.info('🔑 Using GitHub token authentication')
+    return token
+  }
+
+  throw new Error(
+    'No authentication method provided. Please provide either:\n' +
+      '1. GitHub App credentials (github-app-id, github-app-private-key, github-app-installation-id), or\n' +
+      '2. GitHub token (github-token)'
+  )
+}
 
 /**
  * Get GitHub repository information from the context
@@ -17,15 +97,15 @@ export function getRepoInfo() {
 
 /**
  * Fetch Dependabot alerts from GitHub
- * @param {string} token - GitHub token
  * @param {string} owner - Repository owner
  * @param {string} repo - Repository name
  * @param {Object} options - Filter options
  * @returns {Promise<Array>} Array of Dependabot alerts
  */
-export async function getDependabotAlerts(token, owner, repo, options = {}) {
+export async function getDependabotAlerts(owner, repo, options = {}) {
   const { excludeDismissed = true, severityThreshold = 'medium' } = options
 
+  const token = await getGitHubToken()
   const octokit = getOctokit(token)
 
   core.info(`Fetching Dependabot alerts for ${owner}/${repo}`)

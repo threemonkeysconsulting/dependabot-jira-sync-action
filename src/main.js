@@ -12,16 +12,12 @@ import {
  * @returns {Object} Configuration object
  */
 function getConfig() {
-  const githubToken = core.getInput('github-token', { required: true })
   const jiraUrl = core.getInput('jira-url', { required: true })
   const jiraUsername = core.getInput('jira-username', { required: true })
   const jiraApiToken = core.getInput('jira-api-token', { required: true })
   const jiraProjectKey = core.getInput('jira-project-key', { required: true })
 
   return {
-    github: {
-      token: githubToken
-    },
     jira: {
       url: jiraUrl,
       username: jiraUsername,
@@ -69,7 +65,7 @@ export async function run() {
     core.info(`Repository: ${owner}/${repo}`)
 
     // Fetch Dependabot alerts
-    const alerts = await getDependabotAlerts(config.github.token, owner, repo, {
+    const alerts = await getDependabotAlerts(owner, repo, {
       excludeDismissed: config.filters.excludeDismissed,
       severityThreshold: config.filters.severityThreshold
     })

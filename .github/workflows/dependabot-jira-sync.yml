@@ -48,6 +48,16 @@ jobs:
         uses: ./ # Use the local action for this repository
         # For external usage, use: yourusername/dependabot-jira-sync-action@v1
         with:
+          # GitHub Authentication - Choose ONE method:
+
+          # Option 1: Personal Access Token (PAT)
+          # github-token: ${{ secrets.DEPENDABOT_PAT }}
+
+          # Option 2: GitHub App (Uncomment to use instead of PAT)
+          github-app-id: ${{ secrets.DEPENDABOT_APP_ID }}
+          github-app-private-key: ${{ secrets.DEPENDABOT_APP_PRIVATE_KEY }}
+          github-app-installation-id: ${{ secrets.DEPENDABOT_APP_INSTALLATION_ID }}
+
           # Jira Configuration (Required)
           jira-url: 'https://threemonkeys.atlassian.net'
           jira-username: 'security@threemonkeysconsulting.com'
@@ -71,10 +81,6 @@ jobs:
           # Behavior Configuration (Optional)
           update-existing: 'true' # Update existing Jira issues when alerts change
           dry-run: ${{ inputs.dry-run || 'false' }} # Use input parameter for dry-run
-
-        env:
-          # GitHub token is required for accessing Dependabot alerts
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Print Summary
         if: always()

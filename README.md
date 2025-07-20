@@ -41,6 +41,16 @@ jobs:
       - name: Sync Dependabot Alerts to Jira
         uses: yourusername/dependabot-jira-sync-action@v1
         with:
+          # GitHub Authentication - Choose ONE method:
+
+          # Option 1: Personal Access Token (PAT)
+          github-token: ${{ secrets.DEPENDABOT_PAT }}
+
+          # Option 2: GitHub App (Alternative to PAT)
+          # github-app-id: ${{ secrets.DEPENDABOT_APP_ID }}
+          # github-app-private-key: ${{ secrets.DEPENDABOT_APP_PRIVATE_KEY }}
+          # github-app-installation-id: ${{ secrets.DEPENDABOT_APP_INSTALLATION_ID }}
+
           # Jira Configuration
           jira-url: 'https://yourcompany.atlassian.net'
           jira-username: 'your-email@company.com'
@@ -167,11 +177,50 @@ jobs:
 2. Click "Create API token"
 3. Add the token as `JIRA_API_TOKEN` in your repository secrets
 
-### 2. GitHub Token
+### 2. GitHub Authentication
 
-For public repositories, the default `GITHUB_TOKEN` is sufficient. For private
-repositories or to avoid rate limits, create a Personal Access Token with the
-`repo` scope.
+**Choose ONE of the following authentication methods:**
+
+#### Option A: Personal Access Token (PAT) 🔑
+
+1. Go to **Settings** → **Developer settings** → **Personal access tokens** →
+   **Tokens (classic)**
+2. Click **"Generate new token"**
+3. Select scopes:
+   - ✅ `security_events` (read security events)
+   - ✅ `repo` (access repositories)
+4. Add token as `DEPENDABOT_PAT` in repository secrets
+
+#### Option B: GitHub App (Recommended for Organizations) 🏢
+
+1. **Create GitHub App:**
+   - Go to **Settings** → **Developer settings** → **GitHub Apps** → **New
+     GitHub App**
+   - Configure permissions:
+     - ✅ Security events: Read
+     - ✅ Contents: Read
+     - ✅ Metadata: Read
+   - Disable webhooks (not needed)
+
+2. **Install on repositories:**
+   - Go to app settings → **Install App**
+   - Select repositories
+
+3. **Add secrets:**
+   - `DEPENDABOT_APP_ID`: Your app ID
+   - `DEPENDABOT_APP_PRIVATE_KEY`: Your app's private key (download .pem file
+     content)
+   - `DEPENDABOT_APP_INSTALLATION_ID`: Installation ID from the URL
+
+**GitHub App advantages:**
+
+- ✅ Fine-grained permissions
+- ✅ Organization-owned (not user-tied)
+- ✅ Auto-rotating tokens
+- ✅ Better for enterprise security
+
+**Note:** The default `GITHUB_TOKEN` has limited access to Dependabot alerts.
+You must use either a PAT or GitHub App for this action to work properly.
 
 ### 3. Jira Permissions
 
