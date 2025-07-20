@@ -29,28 +29,40 @@ jobs:
     name: Sync Dependabot Alerts to Jira
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies and build
+        run: |
+          npm ci
+          npm run package
+
       - name: Sync Dependabot Alerts to Jira
+        id: sync
         uses: ./ # Use the local action for this repository
         # For external usage, use: yourusername/dependabot-jira-sync-action@v1
         with:
           # Jira Configuration (Required)
-          jira-url: 'https://yourcompany.atlassian.net'
-          jira-username: 'security@yourcompany.com'
+          jira-url: 'https://threemonkeys.atlassian.net'
+          jira-username: 'security@threemonkeysconsulting.com'
           jira-api-token: ${{ secrets.JIRA_API_TOKEN }}
           jira-project-key: 'SEC'
 
           # Jira Issue Configuration (Optional)
-          jira-issue-type: 'Security Vulnerability'
-          jira-priority: 'High'
           jira-labels: 'dependabot,security,auto-created'
-          jira-assignee: 'security-team-lead'
 
           # Severity-Based Due Dates (Optional)
           # Configure how quickly different severity issues should be addressed
-          critical-due-days: '1' # Critical: Fix within 1 day
-          high-due-days: '7' # High: Fix within 1 week
-          medium-due-days: '30' # Medium: Fix within 1 month
-          low-due-days: '90' # Low: Fix within 3 months
+          critical-due-days: '7' # Critical: Fix within 7 days
+          high-due-days: '14' # High: Fix within 14 days
+          medium-due-days: '30' # Medium: Fix within 30 days
+          low-due-days: '90' # Low: Fix within 90 days
 
           # Filter Configuration (Optional)
           severity-threshold: 'medium' # Only process medium+ severity alerts
