@@ -1,278 +1,303 @@
-# Create a GitHub Action Using JavaScript
+# Dependabot Jira Sync Action
 
-[![GitHub Super-Linter](https://github.com/actions/javascript-action/actions/workflows/linter.yml/badge.svg)](https://github.com/super-linter/super-linter)
-![CI](https://github.com/actions/javascript-action/actions/workflows/ci.yml/badge.svg)
-[![Check dist/](https://github.com/actions/javascript-action/actions/workflows/check-dist.yml/badge.svg)](https://github.com/actions/javascript-action/actions/workflows/check-dist.yml)
-[![CodeQL](https://github.com/actions/javascript-action/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/actions/javascript-action/actions/workflows/codeql-analysis.yml)
-[![Coverage](./badges/coverage.svg)](./badges/coverage.svg)
+![GitHub Super-Linter](https://github.com/yourusername/dependabot-jira-sync-action/actions/workflows/linter.yml/badge.svg)
+![CI](https://github.com/yourusername/dependabot-jira-sync-action/actions/workflows/ci.yml/badge.svg)
+![Code Coverage](./badges/coverage.svg)
 
-Use this template to bootstrap the creation of a JavaScript action. :rocket:
+A GitHub Action that automatically syncs Dependabot security alerts to Jira
+issues with **configurable due dates based on severity levels**.
 
-This template includes compilation support, tests, a validation workflow,
-publishing, and versioning guidance.
+## ✨ Features
 
-If you are new, there's also a simpler introduction in the
-[Hello world JavaScript action repository](https://github.com/actions/hello-world-javascript-action).
+- 🛡️ **Automatic Security Alert Sync**: Fetches Dependabot alerts and creates
+  corresponding Jira issues
+- ⏰ **Severity-Based Due Dates**: Configure different due dates for critical,
+  high, medium, and low severity alerts
+- 🔄 **Smart Updates**: Updates existing Jira issues when alerts change or are
+  dismissed
+- 🧪 **Dry Run Mode**: Test the action without making actual changes
+- 🎯 **Flexible Filtering**: Filter by severity threshold and dismissed status
+- 📝 **Rich Issue Details**: Includes vulnerability details, CVSS scores, CVE
+  IDs, and GitHub links
+- 🔧 **Highly Configurable**: Customize Jira project, issue types, priorities,
+  labels, and assignments
 
-## Create Your Own Action
+## 🚀 Quick Start
 
-To create your own action, you can use this repository as a template! Just
-follow the below instructions:
-
-1. Click the **Use this template** button at the top of the repository
-1. Select **Create a new repository**
-1. Select an owner and name for your new repository
-1. Click **Create repository**
-1. Clone your new repository
-
-> [!IMPORTANT]
->
-> Make sure to remove or update the [`CODEOWNERS`](./CODEOWNERS) file! For
-> details on how to use this file, see
-> [About code owners](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners).
-
-## Initial Setup
-
-After you've cloned the repository to your local machine or codespace, you'll
-need to perform some initial setup steps before you can develop your action.
-
-> [!NOTE]
->
-> You'll need to have a reasonably modern version of
-> [Node.js](https://nodejs.org) handy (20.x or later should work!). If you are
-> using a version manager like [`nodenv`](https://github.com/nodenv/nodenv) or
-> [`fnm`](https://github.com/Schniz/fnm), this template has a `.node-version`
-> file at the root of the repository that can be used to automatically switch to
-> the correct version when you `cd` into the repository. Additionally, this
-> `.node-version` file is used by GitHub Actions in any `actions/setup-node`
-> actions.
-
-1. :hammer_and_wrench: Install the dependencies
-
-   ```bash
-   npm install
-   ```
-
-1. :building_construction: Package the JavaScript for distribution
-
-   ```bash
-   npm run bundle
-   ```
-
-1. :white_check_mark: Run the tests
-
-   ```bash
-   $ npm test
-
-   PASS  ./index.test.js
-     ✓ throws invalid number (3ms)
-     ✓ wait 500 ms (504ms)
-     ✓ test runs (95ms)
-
-   ...
-   ```
-
-## Update the Action Metadata
-
-The [`action.yml`](action.yml) file defines metadata about your action, such as
-input(s) and output(s). For details about this file, see
-[Metadata syntax for GitHub Actions](https://docs.github.com/en/actions/creating-actions/metadata-syntax-for-github-actions).
-
-When you copy this repository, update `action.yml` with the name, description,
-inputs, and outputs for your action.
-
-## Update the Action Code
-
-The [`src/`](./src/) directory is the heart of your action! This contains the
-source code that will be run when your action is invoked. You can replace the
-contents of this directory with your own code.
-
-There are a few things to keep in mind when writing your action code:
-
-- Most GitHub Actions toolkit and CI/CD operations are processed asynchronously.
-  In `main.js`, you will see that the action is run in an `async` function.
-
-  ```javascript
-  const core = require('@actions/core')
-  //...
-
-  async function run() {
-    try {
-      //...
-    } catch (error) {
-      core.setFailed(error.message)
-    }
-  }
-  ```
-
-  For more information about the GitHub Actions toolkit, see the
-  [documentation](https://github.com/actions/toolkit/blob/main/README.md).
-
-So, what are you waiting for? Go ahead and start customizing your action!
-
-1. Create a new branch
-
-   ```bash
-   git checkout -b releases/v1
-   ```
-
-1. Replace the contents of `src/` with your action code
-1. Add tests to `__tests__/` for your source code
-1. Format, test, and build the action
-
-   ```bash
-   npm run all
-   ```
-
-   > This step is important! It will run [`rollup`](https://rollupjs.org/) to
-   > build the final JavaScript action code with all dependencies included. If
-   > you do not run this step, your action will not work correctly when it is
-   > used in a workflow.
-
-1. (Optional) Test your action locally
-
-   The [`@github/local-action`](https://github.com/github/local-action) utility
-   can be used to test your action locally. It is a simple command-line tool
-   that "stubs" (or simulates) the GitHub Actions Toolkit. This way, you can run
-   your JavaScript action locally without having to commit and push your changes
-   to a repository.
-
-   The `local-action` utility can be run in the following ways:
-   - Visual Studio Code Debugger
-
-     Make sure to review and, if needed, update
-     [`.vscode/launch.json`](./.vscode/launch.json)
-
-   - Terminal/Command Prompt
-
-     ```bash
-     # npx @github/local action <action-yaml-path> <entrypoint> <dotenv-file>
-     npx @github/local-action . src/main.js .env
-     ```
-
-   You can provide a `.env` file to the `local-action` CLI to set environment
-   variables used by the GitHub Actions Toolkit. For example, setting inputs and
-   event payload data used by your action. For more information, see the example
-   file, [`.env.example`](./.env.example), and the
-   [GitHub Actions Documentation](https://docs.github.com/en/actions/learn-github-actions/variables#default-environment-variables).
-
-1. Commit your changes
-
-   ```bash
-   git add .
-   git commit -m "My first action is ready!"
-   ```
-
-1. Push them to your repository
-
-   ```bash
-   git push -u origin releases/v1
-   ```
-
-1. Create a pull request and get feedback on your action
-1. Merge the pull request into the `main` branch
-
-Your action is now published! :rocket:
-
-For information about versioning your action, see
-[Versioning](https://github.com/actions/toolkit/blob/main/docs/action-versioning.md)
-in the GitHub Actions toolkit.
-
-## Validate the Action
-
-You can now validate the action by referencing it in a workflow file. For
-example, [`ci.yml`](./.github/workflows/ci.yml) demonstrates how to reference an
-action in the same repository.
+### Basic Usage
 
 ```yaml
-steps:
-  - name: Checkout
-    id: checkout
-    uses: actions/checkout@v4
+name: 'Dependabot Jira Sync'
+on:
+  schedule:
+    # Run every 6 hours
+    - cron: '0 */6 * * *'
+  workflow_dispatch: # Allow manual trigger
 
-  - name: Test Local Action
-    id: test-action
-    uses: ./
-    with:
-      milliseconds: 1000
+jobs:
+  sync-dependabot-alerts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync Dependabot Alerts to Jira
+        uses: yourusername/dependabot-jira-sync-action@v1
+        with:
+          # Jira Configuration
+          jira-url: 'https://yourcompany.atlassian.net'
+          jira-username: 'your-email@company.com'
+          jira-api-token: ${{ secrets.JIRA_API_TOKEN }}
+          jira-project-key: 'SEC'
 
-  - name: Print Output
-    id: output
-    run: echo "${{ steps.test-action.outputs.time }}"
+          # Severity-based due dates (in days)
+          critical-due-days: '1' # Critical issues due in 1 day
+          high-due-days: '3' # High issues due in 3 days
+          medium-due-days: '14' # Medium issues due in 2 weeks
+          low-due-days: '30' # Low issues due in 1 month
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-For example workflow runs, check out the
-[Actions tab](https://github.com/actions/javascript-action/actions)! :rocket:
-
-## Usage
-
-After testing, you can create version tag(s) that developers can use to
-reference different stable versions of your action. For more information, see
-[Versioning](https://github.com/actions/toolkit/blob/main/docs/action-versioning.md)
-in the GitHub Actions toolkit.
-
-To include the action in a workflow in another repository, you can use the
-`uses` syntax with the `@` symbol to reference a specific branch, tag, or commit
-hash.
+### Advanced Configuration
 
 ```yaml
-steps:
-  - name: Checkout
-    id: checkout
-    uses: actions/checkout@v4
+name: 'Advanced Dependabot Jira Sync'
+on:
+  schedule:
+    - cron: '0 8,14,20 * * *' # Run 3 times daily
+  workflow_dispatch:
 
-  - name: Test Local Action
-    id: test-action
-    uses: actions/javascript-action@v1 # Commit with the `v1` tag
-    with:
-      milliseconds: 1000
+jobs:
+  sync-alerts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync Critical and High Severity Alerts
+        uses: yourusername/dependabot-jira-sync-action@v1
+        with:
+          # GitHub Configuration
+          github-token: ${{ secrets.PAT_TOKEN }} # Use PAT for better rate limits
 
-  - name: Print Output
-    id: output
-    run: echo "${{ steps.test-action.outputs.time }}"
+          # Jira Configuration
+          jira-url: ${{ secrets.JIRA_URL }}
+          jira-username: ${{ secrets.JIRA_USERNAME }}
+          jira-api-token: ${{ secrets.JIRA_API_TOKEN }}
+          jira-project-key: 'SECURITY'
+          jira-issue-type: 'Security Vulnerability'
+          jira-priority: 'High'
+          jira-labels: 'dependabot,security,auto-created'
+          jira-assignee: 'security-team-lead'
+
+          # Due Date Configuration (days from creation)
+          critical-due-days: '1' # Same day fix required
+          high-due-days: '7' # 1 week to fix
+          medium-due-days: '30' # 1 month to fix
+          low-due-days: '90' # 3 months to fix
+
+          # Filter Configuration
+          severity-threshold: 'medium' # Only process medium+ severity
+          exclude-dismissed: 'true' # Skip dismissed alerts
+
+          # Behavior Configuration
+          update-existing: 'true' # Update existing issues
+          dry-run: 'false' # Make actual changes
 ```
 
-## Dependency License Management
+## 📋 Inputs
 
-This template includes a GitHub Actions workflow,
-[`licensed.yml`](./.github/workflows/licensed.yml), that uses
-[Licensed](https://github.com/licensee/licensed) to check for dependencies with
-missing or non-compliant licenses. This workflow is initially disabled. To
-enable the workflow, follow the below steps.
+### Required Inputs
 
-1. Open [`licensed.yml`](./.github/workflows/licensed.yml)
-1. Uncomment the following lines:
+| Input              | Description            | Example                         |
+| ------------------ | ---------------------- | ------------------------------- |
+| `jira-url`         | Jira instance URL      | `https://company.atlassian.net` |
+| `jira-username`    | Jira username or email | `security@company.com`          |
+| `jira-api-token`   | Jira API token         | `${{ secrets.JIRA_API_TOKEN }}` |
+| `jira-project-key` | Jira project key       | `SEC`                           |
 
-   ```yaml
-   # pull_request:
-   #   branches:
-   #     - main
-   # push:
-   #   branches:
-   #     - main
-   ```
+### GitHub Configuration
 
-1. Save and commit the changes
+| Input          | Description                 | Default               | Required |
+| -------------- | --------------------------- | --------------------- | -------- |
+| `github-token` | GitHub token for API access | `${{ github.token }}` | ✅       |
 
-Once complete, this workflow will run any time a pull request is created or
-changes pushed directly to `main`. If the workflow detects any dependencies with
-missing or non-compliant licenses, it will fail the workflow and provide details
-on the issue(s) found.
+### Jira Configuration
 
-### Updating Licenses
+| Input             | Description            | Default               | Required |
+| ----------------- | ---------------------- | --------------------- | -------- |
+| `jira-issue-type` | Jira issue type        | `Bug`                 | ❌       |
+| `jira-priority`   | Default Jira priority  | `Medium`              | ❌       |
+| `jira-labels`     | Comma-separated labels | `dependabot,security` | ❌       |
+| `jira-assignee`   | Default assignee       | _none_                | ❌       |
 
-Whenever you install or update dependencies, you can use the Licensed CLI to
-update the licenses database. To install Licensed, see the project's
-[Readme](https://github.com/licensee/licensed?tab=readme-ov-file#installation).
+### Severity-Based Due Dates
 
-To update the cached licenses, run the following command:
+| Input               | Description                               | Default | Required |
+| ------------------- | ----------------------------------------- | ------- | -------- |
+| `critical-due-days` | Days until due for critical issues        | `1`     | ❌       |
+| `high-due-days`     | Days until due for high severity issues   | `7`     | ❌       |
+| `medium-due-days`   | Days until due for medium severity issues | `30`    | ❌       |
+| `low-due-days`      | Days until due for low severity issues    | `90`    | ❌       |
+
+### Filter Configuration
+
+| Input                | Description                 | Default  | Required |
+| -------------------- | --------------------------- | -------- | -------- |
+| `severity-threshold` | Minimum severity to process | `medium` | ❌       |
+| `exclude-dismissed`  | Skip dismissed alerts       | `true`   | ❌       |
+
+### Behavior Configuration
+
+| Input             | Description                 | Default | Required |
+| ----------------- | --------------------------- | ------- | -------- |
+| `update-existing` | Update existing Jira issues | `true`  | ❌       |
+| `dry-run`         | Only log what would be done | `false` | ❌       |
+
+## 📤 Outputs
+
+| Output             | Description                       | Example                                             |
+| ------------------ | --------------------------------- | --------------------------------------------------- |
+| `issues-created`   | Number of new Jira issues created | `3`                                                 |
+| `issues-updated`   | Number of existing issues updated | `1`                                                 |
+| `alerts-processed` | Total alerts processed            | `4`                                                 |
+| `summary`          | Summary of the operation          | `Created 3 new issues and updated 1 existing issue` |
+
+## 🔧 Setup Requirements
+
+### 1. Jira API Token
+
+1. Go to
+   [Atlassian Account Settings](https://id.atlassian.com/manage-profile/security/api-tokens)
+2. Click "Create API token"
+3. Add the token as `JIRA_API_TOKEN` in your repository secrets
+
+### 2. GitHub Token
+
+For public repositories, the default `GITHUB_TOKEN` is sufficient. For private
+repositories or to avoid rate limits, create a Personal Access Token with the
+`repo` scope.
+
+### 3. Jira Permissions
+
+Ensure your Jira user has permissions to:
+
+- Create issues in the target project
+- Search issues in the project
+- Add comments to issues
+
+## 📝 Example Jira Issue
+
+The action creates comprehensive Jira issues with all relevant security
+information:
+
+```
+Summary: Dependabot Alert #42: Critical vulnerability in lodash
+
+Description:
+*Dependabot Security Alert #42*
+
+*Package:* lodash
+*Ecosystem:* npm
+*Severity:* CRITICAL
+*Vulnerable Version Range:* < 4.17.12
+*First Patched Version:* 4.17.12
+
+*Description:*
+Versions of lodash before 4.17.12 are vulnerable to Prototype Pollution.
+The function defaultsDeep could be tricked into adding or modifying
+properties of Object.prototype using a constructor payload.
+
+*CVSS Score:* 9.8
+*CVE ID:* CVE-2019-10744
+*GHSA ID:* GHSA-jf85-cpcp-j695
+
+*GitHub Alert URL:* https://github.com/company/repo/security/dependabot/42
+
+---
+_This issue was automatically created by the Dependabot Jira Sync action._
+
+Due Date: Tomorrow (Critical severity = 1 day)
+Labels: dependabot, security
+Priority: High
+```
+
+## 🔍 Dry Run Mode
+
+Test the action without making changes:
+
+```yaml
+- name: Test Dependabot Sync
+  uses: yourusername/dependabot-jira-sync-action@v1
+  with:
+    jira-url: 'https://company.atlassian.net'
+    jira-username: 'test@company.com'
+    jira-api-token: ${{ secrets.JIRA_API_TOKEN }}
+    jira-project-key: 'TEST'
+    dry-run: 'true' # 🧪 No actual changes will be made
+```
+
+## 📊 Monitoring & Observability
+
+The action provides detailed logging:
+
+```
+✅ Starting Dependabot Jira Sync...
+📍 Repository: company/awesome-app
+🔍 Fetching Dependabot alerts for company/awesome-app
+📋 Found 5 total alerts
+🎯 3 alerts match severity threshold: medium
+🔄 Processing alert #42: Critical vulnerability in lodash
+✅ Created Jira issue TEST-123 for alert #42
+🔄 Processing alert #43: High severity issue in axios
+ℹ️  Found existing issue: TEST-100
+✅ Updated Jira issue: TEST-100
+
+📊 Summary:
+- Alerts processed: 3
+- Issues created: 1
+- Issues updated: 1
+✅ Dependabot Jira Sync completed successfully
+```
+
+## 🛠️ Development
+
+### Local Development
+
+1. Clone the repository
+2. Install dependencies: `npm install`
+3. Run tests: `npm test`
+4. Build: `npm run package`
+5. Format code: `npm run format:write`
+6. Run linting: `npm run lint`
+
+### Testing
 
 ```bash
-licensed cache
+# Run all tests
+npm test
+
+# Run tests with coverage
+npm run coverage
+
+# Run all checks (format, lint, test, build)
+npm run all
 ```
 
-To check the status of cached licenses, run the following command:
+## 🤝 Contributing
 
-```bash
-licensed status
-```
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
+for details.
+
+## 🙏 Acknowledgments
+
+- Built on the
+  [GitHub Actions JavaScript template](https://github.com/actions/javascript-action)
+- Inspired by existing Dependabot-Jira integrations
+- Powered by the GitHub REST API and Jira REST API
+
+---
+
+**Need help?**
+[Open an issue](https://github.com/yourusername/dependabot-jira-sync-action/issues)
+or check out the
+[GitHub Actions documentation](https://docs.github.com/en/actions).

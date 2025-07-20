@@ -1,23 +1,100 @@
-name: The name of your action here
-description: Provide a description here
-author: Your name or organization here
+name: 'Dependabot Jira Sync'
+description:
+  'Sync Dependabot alerts to Jira issues with configurable due dates based on
+  severity'
+author: 'Your Name'
 
 # Add your action's branding here. This will appear on the GitHub Marketplace.
 branding:
-  icon: heart
+  icon: shield
   color: red
 
 # Define your inputs here.
 inputs:
-  milliseconds:
-    description: Your input description here
+  # GitHub Configuration
+  github-token:
+    description: 'GitHub token for accessing repository and security alerts'
     required: true
-    default: '1000'
+    default: ${{ github.token }}
+
+  # Jira Configuration
+  jira-url:
+    description: 'Jira instance URL (e.g., https://company.atlassian.net)'
+    required: true
+  jira-username:
+    description: 'Jira username or email'
+    required: true
+  jira-api-token:
+    description: 'Jira API token'
+    required: true
+  jira-project-key:
+    description: 'Jira project key where issues will be created'
+    required: true
+  jira-issue-type:
+    description: 'Jira issue type for created issues'
+    required: false
+    default: 'Bug'
+  jira-priority:
+    description: 'Default Jira priority for issues'
+    required: false
+    default: 'Medium'
+  jira-labels:
+    description: 'Comma-separated list of labels to add to Jira issues'
+    required: false
+    default: 'dependabot,security'
+  jira-assignee:
+    description: 'Jira user to assign issues to'
+    required: false
+
+  # Severity Configuration
+  critical-due-days:
+    description: 'Days until due date for critical severity issues'
+    required: false
+    default: '1'
+  high-due-days:
+    description: 'Days until due date for high severity issues'
+    required: false
+    default: '7'
+  medium-due-days:
+    description: 'Days until due date for medium severity issues'
+    required: false
+    default: '30'
+  low-due-days:
+    description: 'Days until due date for low severity issues'
+    required: false
+    default: '90'
+
+  # Filter Configuration
+  severity-threshold:
+    description:
+      'Minimum severity level to process (low, medium, high, critical)'
+    required: false
+    default: 'medium'
+  exclude-dismissed:
+    description: 'Whether to exclude dismissed alerts'
+    required: false
+    default: 'true'
+
+  # Behavior Configuration
+  update-existing:
+    description: 'Whether to update existing Jira issues when alerts change'
+    required: false
+    default: 'true'
+  dry-run:
+    description: 'If true, only log what would be done without making changes'
+    required: false
+    default: 'false'
 
 # Define your outputs here.
 outputs:
-  time:
-    description: Your output description here
+  issues-created:
+    description: 'Number of new Jira issues created'
+  issues-updated:
+    description: 'Number of existing Jira issues updated'
+  alerts-processed:
+    description: 'Total number of Dependabot alerts processed'
+  summary:
+    description: 'Summary of the sync operation'
 
 runs:
   using: node20

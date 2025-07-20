@@ -1,20 +1,24 @@
 {
-  "name": "javascript-action",
-  "description": "GitHub Actions JavaScript Template",
-  "version": "0.0.0",
-  "author": "",
+  "name": "dependabot-jira-sync-action",
+  "description": "GitHub Action to sync Dependabot alerts to Jira issues with configurable due dates based on severity",
+  "version": "1.0.0",
+  "author": "Your Name",
   "type": "module",
   "private": true,
-  "homepage": "https://github.com/actions/javascript-action#readme",
+  "homepage": "https://github.com/yourusername/dependabot-jira-sync-action#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/actions/javascript-action.git"
+    "url": "git+https://github.com/yourusername/dependabot-jira-sync-action.git"
   },
   "bugs": {
-    "url": "https://github.com/actions/javascript-action/issues"
+    "url": "https://github.com/yourusername/dependabot-jira-sync-action/issues"
   },
   "keywords": [
-    "actions"
+    "actions",
+    "dependabot",
+    "jira",
+    "security",
+    "vulnerability"
   ],
   "exports": {
     ".": "./dist/index.js"
@@ -37,7 +41,9 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@actions/core": "^1.11.1"
+    "@actions/core": "^1.11.1",
+    "@actions/github": "^6.0.0",
+    "axios": "^1.7.9"
   },
   "devDependencies": {
     "@eslint/compat": "^1.3.1",

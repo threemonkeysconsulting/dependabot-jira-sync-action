@@ -1,0 +1,74 @@
+name: 'Dependabot Jira Sync'
+
+# Example workflow showing how to use the Dependabot Jira Sync action
+# This workflow syncs Dependabot security alerts to Jira issues with
+# configurable due dates based on severity levels.
+
+on:
+  schedule:
+    # Run every 6 hours to check for new alerts
+    - cron: '0 */6 * * *'
+
+  workflow_dispatch:
+    # Allow manual triggering
+    inputs:
+      dry-run:
+        description: 'Run in dry-run mode (no actual changes)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  # Required permissions for the action
+  security-events: read
+  contents: read
+
+jobs:
+  sync-dependabot-alerts:
+    runs-on: ubuntu-latest
+    name: Sync Dependabot Alerts to Jira
+
+    steps:
+      - name: Sync Dependabot Alerts to Jira
+        uses: ./ # Use the local action for this repository
+        # For external usage, use: yourusername/dependabot-jira-sync-action@v1
+        with:
+          # Jira Configuration (Required)
+          jira-url: 'https://yourcompany.atlassian.net'
+          jira-username: 'security@yourcompany.com'
+          jira-api-token: ${{ secrets.JIRA_API_TOKEN }}
+          jira-project-key: 'SEC'
+
+          # Jira Issue Configuration (Optional)
+          jira-issue-type: 'Security Vulnerability'
+          jira-priority: 'High'
+          jira-labels: 'dependabot,security,auto-created'
+          jira-assignee: 'security-team-lead'
+
+          # Severity-Based Due Dates (Optional)
+          # Configure how quickly different severity issues should be addressed
+          critical-due-days: '1' # Critical: Fix within 1 day
+          high-due-days: '7' # High: Fix within 1 week
+          medium-due-days: '30' # Medium: Fix within 1 month
+          low-due-days: '90' # Low: Fix within 3 months
+
+          # Filter Configuration (Optional)
+          severity-threshold: 'medium' # Only process medium+ severity alerts
+          exclude-dismissed: 'true' # Skip alerts that have been dismissed
+
+          # Behavior Configuration (Optional)
+          update-existing: 'true' # Update existing Jira issues when alerts change
+          dry-run: ${{ inputs.dry-run || 'false' }} # Use input parameter for dry-run
+
+        env:
+          # GitHub token is required for accessing Dependabot alerts
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Print Summary
+        if: always()
+        run: |
+          echo "## Dependabot Jira Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Issues Created:** ${{ steps.sync.outputs.issues-created || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Issues Updated:** ${{ steps.sync.outputs.issues-updated || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Alerts Processed:** ${{ steps.sync.outputs.alerts-processed || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Summary:** ${{ steps.sync.outputs.summary || 'No summary available' }}" >> $GITHUB_STEP_SUMMARY

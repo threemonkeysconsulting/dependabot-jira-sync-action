@@ -1,0 +1,382 @@
+/**
+ * Unit tests for Jira API functions
+ */
+import { jest } from '@jest/globals'
+
+// Mock @actions/core
+const mockCore = {
+  info: jest.fn(),
+  error: jest.fn(),
+  warning: jest.fn()
+}
+
+// Mock axios
+const mockAxiosInstance = {
+  get: jest.fn(),
+  post: jest.fn(),
+  interceptors: {
+    response: {
+      use: jest.fn()
+    }
+  }
+}
+
+const mockAxios = {
+  create: jest.fn(() => mockAxiosInstance)
+}
+
+// Setup mocks before importing
+jest.unstable_mockModule('@actions/core', () => mockCore)
+jest.unstable_mockModule('axios', () => ({ default: mockAxios }))
+
+// Import the functions we want to test
+const {
+  createJiraClient,
+  calculateDueDate,
+  findExistingIssue,
+  createJiraIssue,
+  updateJiraIssue
+} = await import('../src/jira.js')
+
+describe('Jira API Functions', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  describe('createJiraClient', () => {
+    it('should create axios instance with correct configuration', () => {
+      const client = createJiraClient(
+        'https://company.atlassian.net',
+        'user@company.com',
+        'api-token'
+      )
+
+      expect(mockAxios.create).toHaveBeenCalledWith({
+        baseURL: 'https://company.atlassian.net/rest/api/2',
+        auth: {
+          username: 'user@company.com',
+          password: 'api-token'
+        },
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json'
+        }
+      })
+
+      expect(mockAxiosInstance.interceptors.response.use).toHaveBeenCalled()
+      expect(client).toBe(mockAxiosInstance)
+    })
+  })
+
+  describe('calculateDueDate', () => {
+    // Mock Date to make tests deterministic
+    const originalDate = Date
+
+    beforeAll(() => {
+      // Mock Date constructor to return a new Date object each time
+      global.Date = jest.fn().mockImplementation((dateString) => {
+        if (dateString) {
+          return new originalDate(dateString)
+        }
+        return new originalDate('2023-01-15T10:00:00Z')
+      })
+      // Copy static methods
+      global.Date.now = originalDate.now
+      global.Date.UTC = originalDate.UTC
+      global.Date.parse = originalDate.parse
+      global.Date.prototype = originalDate.prototype
+    })
+
+    afterAll(() => {
+      global.Date = originalDate
+    })
+
+    it('should calculate due date for critical severity', () => {
+      const dueDaysConfig = { critical: 1, high: 7, medium: 30, low: 90 }
+
+      const result = calculateDueDate('critical', dueDaysConfig)
+
+      expect(result).toBe('2023-01-16') // 1 day from mock date
+    })
+
+    it('should calculate due date for high severity', () => {
+      const dueDaysConfig = { critical: 1, high: 7, medium: 30, low: 90 }
+
+      const result = calculateDueDate('high', dueDaysConfig)
+
+      expect(result).toBe('2023-01-22') // 7 days from mock date
+    })
+
+    it('should calculate due date for medium severity', () => {
+      const dueDaysConfig = { critical: 1, high: 7, medium: 30, low: 90 }
+
+      const result = calculateDueDate('medium', dueDaysConfig)
+
+      expect(result).toBe('2023-02-14') // 30 days from mock date
+    })
+
+    it('should calculate due date for low severity', () => {
+      const dueDaysConfig = { critical: 1, high: 7, medium: 30, low: 90 }
+
+      const result = calculateDueDate('low', dueDaysConfig)
+
+      expect(result).toBe('2023-04-15') // 90 days from mock date
+    })
+
+    it('should default to medium severity for unknown severity', () => {
+      const dueDaysConfig = { critical: 1, high: 7, medium: 30, low: 90 }
+
+      const result = calculateDueDate('unknown', dueDaysConfig)
+
+      expect(result).toBe('2023-02-14') // 30 days (medium default)
+    })
+
+    it('should use fallback values if config is missing', () => {
+      const result = calculateDueDate('critical', {})
+
+      expect(result).toBe('2023-01-16') // 1 day (fallback for critical)
+    })
+  })
+
+  describe('findExistingIssue', () => {
+    beforeEach(() => {
+      mockAxiosInstance.get.mockClear()
+    })
+
+    it('should find existing issue', async () => {
+      const mockResponse = {
+        data: {
+          issues: [
+            {
+              key: 'SEC-123',
+              summary: 'Dependabot Alert #42',
+              status: { name: 'Open' },
+              updated: '2023-01-15T10:00:00Z'
+            }
+          ]
+        }
+      }
+
+      mockAxiosInstance.get.mockResolvedValue(mockResponse)
+
+      const result = await findExistingIssue(mockAxiosInstance, 'SEC', 42)
+
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/search', {
+        params: {
+          jql: 'project = SEC AND summary ~ "Dependabot Alert #42"',
+          fields: 'key,summary,status,updated'
+        }
+      })
+
+      expect(result).toEqual(mockResponse.data.issues[0])
+    })
+
+    it('should return null if no issues found', async () => {
+      mockAxiosInstance.get.mockResolvedValue({
+        data: { issues: [] }
+      })
+
+      const result = await findExistingIssue(mockAxiosInstance, 'SEC', 42)
+
+      expect(result).toBeNull()
+    })
+
+    it('should handle search errors gracefully', async () => {
+      mockAxiosInstance.get.mockRejectedValue(new Error('Jira API error'))
+
+      const result = await findExistingIssue(mockAxiosInstance, 'SEC', 42)
+
+      expect(result).toBeNull()
+      expect(mockCore.warning).toHaveBeenCalledWith(
+        'Failed to search for existing issue: Jira API error'
+      )
+    })
+  })
+
+  describe('createJiraIssue', () => {
+    const mockConfig = {
+      projectKey: 'SEC',
+      issueType: 'Bug',
+      priority: 'High',
+      labels: 'dependabot,security',
+      assignee: 'security-team',
+      dueDays: { critical: 1, high: 7, medium: 30, low: 90 }
+    }
+
+    const mockAlert = {
+      id: 42,
+      title: 'Critical vulnerability in lodash',
+      description: 'Prototype pollution vulnerability',
+      severity: 'critical',
+      package: 'lodash',
+      ecosystem: 'npm',
+      vulnerableVersionRange: '< 4.17.12',
+      firstPatchedVersion: '4.17.12',
+      cvss: 9.8,
+      cveId: 'CVE-2019-10744',
+      ghsaId: 'GHSA-jf85-cpcp-j695',
+      url: 'https://github.com/company/repo/security/dependabot/42'
+    }
+
+    // Mock Date for consistent due date calculation
+    const originalDate = Date
+    beforeAll(() => {
+      global.Date = jest.fn().mockImplementation((dateString) => {
+        if (dateString) {
+          return new originalDate(dateString)
+        }
+        return new originalDate('2023-01-15T10:00:00Z')
+      })
+      global.Date.now = originalDate.now
+      global.Date.UTC = originalDate.UTC
+      global.Date.parse = originalDate.parse
+      global.Date.prototype = originalDate.prototype
+    })
+
+    afterAll(() => {
+      global.Date = originalDate
+    })
+
+    it('should create Jira issue with correct data', async () => {
+      const mockResponse = { data: { key: 'SEC-123' } }
+      mockAxiosInstance.post.mockResolvedValue(mockResponse)
+
+      const result = await createJiraIssue(
+        mockAxiosInstance,
+        mockConfig,
+        mockAlert,
+        false
+      )
+
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+        '/issue',
+        expect.objectContaining({
+          fields: expect.objectContaining({
+            project: { key: 'SEC' },
+            summary: 'Dependabot Alert #42: Critical vulnerability in lodash',
+            issuetype: { name: 'Bug' },
+            priority: { name: 'High' },
+            duedate: '2023-01-16', // 1 day for critical
+            labels: ['dependabot', 'security'],
+            assignee: { name: 'security-team' }
+          })
+        })
+      )
+
+      expect(result).toEqual({ key: 'SEC-123' })
+      expect(mockCore.info).toHaveBeenCalledWith('Created Jira issue: SEC-123')
+    })
+
+    it('should handle dry run mode', async () => {
+      const result = await createJiraIssue(
+        mockAxiosInstance,
+        mockConfig,
+        mockAlert,
+        true
+      )
+
+      expect(mockAxiosInstance.post).not.toHaveBeenCalled()
+      expect(result).toEqual({ key: 'DRY-RUN-KEY', dryRun: true })
+      expect(mockCore.info).toHaveBeenCalledWith(
+        '[DRY RUN] Would create Jira issue: Dependabot Alert #42: Critical vulnerability in lodash'
+      )
+    })
+
+    it('should create issue without optional fields', async () => {
+      const minimalConfig = {
+        projectKey: 'SEC',
+        issueType: 'Bug',
+        priority: 'Medium',
+        dueDays: { medium: 30 }
+      }
+
+      const mockResponse = { data: { key: 'SEC-124' } }
+      mockAxiosInstance.post.mockResolvedValue(mockResponse)
+
+      await createJiraIssue(mockAxiosInstance, minimalConfig, mockAlert, false)
+
+      const issueData = mockAxiosInstance.post.mock.calls[0][1]
+      expect(issueData.fields.labels).toBeUndefined()
+      expect(issueData.fields.assignee).toBeUndefined()
+    })
+
+    it('should handle Jira API errors', async () => {
+      const apiError = new Error('Jira create issue failed')
+      mockAxiosInstance.post.mockRejectedValue(apiError)
+
+      await expect(
+        createJiraIssue(mockAxiosInstance, mockConfig, mockAlert, false)
+      ).rejects.toThrow('Jira create issue failed')
+
+      expect(mockCore.error).toHaveBeenCalledWith(
+        'Failed to create Jira issue: Jira create issue failed'
+      )
+    })
+  })
+
+  describe('updateJiraIssue', () => {
+    const mockAlert = {
+      id: 42,
+      state: 'dismissed',
+      updatedAt: '2023-01-15T10:00:00Z',
+      dismissedAt: '2023-01-14T15:30:00Z',
+      dismissedReason: 'tolerable_risk',
+      dismissedComment: 'Risk accepted by security team',
+      url: 'https://github.com/company/repo/security/dependabot/42'
+    }
+
+    it('should update Jira issue with comment', async () => {
+      mockAxiosInstance.post.mockResolvedValue({})
+
+      const result = await updateJiraIssue(
+        mockAxiosInstance,
+        'SEC-123',
+        mockAlert,
+        false
+      )
+
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+        '/issue/SEC-123/comment',
+        {
+          body: expect.stringContaining('*Dependabot Alert Updated*')
+        }
+      )
+
+      const commentBody = mockAxiosInstance.post.mock.calls[0][1].body
+      expect(commentBody).toContain('*Current Status:* dismissed')
+      expect(commentBody).toContain('*Dismissed Reason:* tolerable_risk')
+      expect(commentBody).toContain('Risk accepted by security team')
+
+      expect(result).toEqual({ updated: true })
+      expect(mockCore.info).toHaveBeenCalledWith('Updated Jira issue: SEC-123')
+    })
+
+    it('should handle dry run mode', async () => {
+      const result = await updateJiraIssue(
+        mockAxiosInstance,
+        'SEC-123',
+        mockAlert,
+        true
+      )
+
+      expect(mockAxiosInstance.post).not.toHaveBeenCalled()
+      expect(result).toEqual({ updated: true, dryRun: true })
+      expect(mockCore.info).toHaveBeenCalledWith(
+        '[DRY RUN] Would update Jira issue SEC-123 with comment'
+      )
+    })
+
+    it('should handle update errors', async () => {
+      const apiError = new Error('Jira update failed')
+      mockAxiosInstance.post.mockRejectedValue(apiError)
+
+      await expect(
+        updateJiraIssue(mockAxiosInstance, 'SEC-123', mockAlert, false)
+      ).rejects.toThrow('Jira update failed')
+
+      expect(mockCore.error).toHaveBeenCalledWith(
+        'Failed to update Jira issue SEC-123: Jira update failed'
+      )
+    })
+  })
+})
