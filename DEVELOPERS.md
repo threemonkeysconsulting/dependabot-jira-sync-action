@@ -450,6 +450,7 @@ core.setFailed('Fatal error') // Red in UI, fails action
    - Solution: Verify API token and email are correct
 
 3. **Jira Project Configuration:**
+
    ```
    Field 'assignee' cannot be set. It is not on the appropriate screen
    ```
