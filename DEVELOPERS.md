@@ -166,7 +166,8 @@ const daysMap = {
 }
 
 const days = daysMap[severity] || daysMap.medium
-const dueDate = new Date()
+const baseDate = createdAt ? new Date(createdAt) : new Date()
+const dueDate = new Date(baseDate)
 dueDate.setDate(dueDate.getDate() + days)
 return dueDate.toISOString().split('T')[0] // YYYY-MM-DD format
 ```
@@ -182,7 +183,7 @@ const issueData = {
     description: formatDescription(alert),
     issuetype: { name: issueType },
     priority: { name: priority },
-    duedate: calculateDueDate(alert.severity, dueDaysConfig),
+    duedate: calculateDueDate(alert.severity, dueDaysConfig, alert.createdAt),
     labels: parseLabels(labels),
     assignee: assignee ? { name: assignee } : undefined
   }
@@ -353,9 +354,9 @@ client.interceptors.response.use(
 
 ### Current Test Coverage
 
-🎯 **80.93% overall code coverage** with 53 comprehensive tests:
+🎯 **81.01% overall code coverage** with 54 comprehensive tests:
 
-- **Jira module**: 95.12% coverage (30 tests)
+- **Jira module**: 95.18% coverage (31 tests)
 - **GitHub module**: 77.46% coverage (16 tests)
 - **Main module**: 69.87% coverage (6 tests)
 

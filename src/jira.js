@@ -38,12 +38,13 @@ export function createJiraClient(jiraUrl, username, apiToken) {
 }
 
 /**
- * Calculate due date based on severity and configuration
+ * Calculate due date based on severity and alert creation date
  * @param {string} severity - Alert severity (critical, high, medium, low)
  * @param {Object} dueDaysConfig - Due days configuration
+ * @param {string} createdAt - Alert creation timestamp (ISO string)
  * @returns {string} Due date in YYYY-MM-DD format
  */
-export function calculateDueDate(severity, dueDaysConfig) {
+export function calculateDueDate(severity, dueDaysConfig, createdAt) {
   const daysMap = {
     critical: dueDaysConfig.critical || 1,
     high: dueDaysConfig.high || 7,
@@ -52,7 +53,8 @@ export function calculateDueDate(severity, dueDaysConfig) {
   }
 
   const days = daysMap[severity] || daysMap.medium
-  const dueDate = new Date()
+  const baseDate = createdAt ? new Date(createdAt) : new Date()
+  const dueDate = new Date(baseDate)
   dueDate.setDate(dueDate.getDate() + days)
 
   return dueDate.toISOString().split('T')[0] // Return YYYY-MM-DD format
@@ -99,7 +101,11 @@ export async function createJiraIssue(
 ) {
   const { projectKey, issueType, priority, labels, assignee } = config
 
-  const dueDate = calculateDueDate(alert.severity, config.dueDays)
+  const dueDate = calculateDueDate(
+    alert.severity,
+    config.dueDays,
+    alert.createdAt
+  )
 
   const description = `
 *Dependabot Security Alert #${alert.id}*
