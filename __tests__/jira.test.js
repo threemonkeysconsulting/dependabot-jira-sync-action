@@ -35,7 +35,10 @@ const {
   calculateDueDate,
   findExistingIssue,
   createJiraIssue,
-  updateJiraIssue
+  updateJiraIssue,
+  findOpenDependabotIssues,
+  extractAlertIdFromIssue,
+  closeJiraIssue
 } = await import('../src/jira.js')
 
 describe('Jira API Functions', () => {
@@ -376,6 +379,303 @@ describe('Jira API Functions', () => {
 
       expect(mockCore.error).toHaveBeenCalledWith(
         'Failed to update Jira issue SEC-123: Jira update failed'
+      )
+    })
+  })
+
+  describe('findOpenDependabotIssues', () => {
+    it('should find open Dependabot issues', async () => {
+      const mockResponse = {
+        data: {
+          issues: [
+            {
+              key: 'SEC-123',
+              summary: 'Dependabot Alert #42: Critical vulnerability',
+              description: 'Alert description',
+              status: { name: 'Open' }
+            },
+            {
+              key: 'SEC-124',
+              summary: 'Dependabot Alert #43: High vulnerability',
+              description: 'Another alert',
+              status: { name: 'In Progress' }
+            }
+          ]
+        }
+      }
+
+      mockAxiosInstance.get.mockResolvedValue(mockResponse)
+
+      const result = await findOpenDependabotIssues(mockAxiosInstance, 'SEC')
+
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/rest/api/3/search', {
+        params: {
+          jql: 'project = "SEC" AND labels = "dependabot" AND status != "Done" AND status != "Resolved" AND status != "Closed"',
+          fields: 'key,summary,description,status',
+          maxResults: 100
+        }
+      })
+
+      expect(result).toHaveLength(2)
+      expect(result[0].key).toBe('SEC-123')
+      expect(result[1].key).toBe('SEC-124')
+      expect(mockCore.info).toHaveBeenCalledWith(
+        'Found 2 open Dependabot issues'
+      )
+    })
+
+    it('should handle empty search results', async () => {
+      mockAxiosInstance.get.mockResolvedValue({ data: { issues: [] } })
+
+      const result = await findOpenDependabotIssues(mockAxiosInstance, 'SEC')
+
+      expect(result).toHaveLength(0)
+      expect(mockCore.info).toHaveBeenCalledWith(
+        'Found 0 open Dependabot issues'
+      )
+    })
+
+    it('should handle search errors gracefully', async () => {
+      const searchError = new Error('JQL syntax error')
+      mockAxiosInstance.get.mockRejectedValue(searchError)
+
+      const result = await findOpenDependabotIssues(mockAxiosInstance, 'SEC')
+
+      expect(result).toHaveLength(0)
+      expect(mockCore.warning).toHaveBeenCalledWith(
+        'Failed to search for open Dependabot issues: JQL syntax error'
+      )
+    })
+  })
+
+  describe('extractAlertIdFromIssue', () => {
+    it('should extract alert ID from summary', () => {
+      const issue = {
+        key: 'SEC-123',
+        summary: 'Dependabot Alert #42: Critical vulnerability in lodash',
+        description: 'Some description'
+      }
+
+      const result = extractAlertIdFromIssue(issue)
+
+      expect(result).toBe('42')
+    })
+
+    it('should extract alert ID from description if not in summary', () => {
+      const issue = {
+        key: 'SEC-123',
+        summary: 'Security Issue: lodash vulnerability',
+        description: 'Alert ID: 123\nThis is a security vulnerability...'
+      }
+
+      const result = extractAlertIdFromIssue(issue)
+
+      expect(result).toBe('123')
+    })
+
+    it('should prioritize summary over description', () => {
+      const issue = {
+        key: 'SEC-123',
+        summary: 'Dependabot Alert #42: Critical vulnerability',
+        description: 'Alert ID: 999\nThis should not be used'
+      }
+
+      const result = extractAlertIdFromIssue(issue)
+
+      expect(result).toBe('42')
+    })
+
+    it('should return null when no alert ID found', () => {
+      const issue = {
+        key: 'SEC-123',
+        summary: 'Manual security issue',
+        description: 'This is not a Dependabot alert'
+      }
+
+      const result = extractAlertIdFromIssue(issue)
+
+      expect(result).toBeNull()
+      expect(mockCore.warning).toHaveBeenCalledWith(
+        'Could not extract alert ID from issue SEC-123'
+      )
+    })
+
+    it('should handle missing summary and description', () => {
+      const issue = {
+        key: 'SEC-123'
+      }
+
+      const result = extractAlertIdFromIssue(issue)
+
+      expect(result).toBeNull()
+      expect(mockCore.warning).toHaveBeenCalledWith(
+        'Could not extract alert ID from issue SEC-123'
+      )
+    })
+  })
+
+  describe('closeJiraIssue', () => {
+    beforeEach(() => {
+      // Mock transitions response
+      mockAxiosInstance.get.mockResolvedValue({
+        data: {
+          transitions: [
+            { id: '31', name: 'Done' },
+            { id: '21', name: 'In Progress' },
+            { id: '41', name: 'Resolved' }
+          ]
+        }
+      })
+    })
+
+    it('should close issue with transition and comment', async () => {
+      mockAxiosInstance.post.mockResolvedValue({ data: {} })
+
+      const result = await closeJiraIssue(
+        mockAxiosInstance,
+        'SEC-123',
+        'Done',
+        'Alert was resolved in GitHub',
+        false
+      )
+
+      // Should get available transitions
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
+        '/rest/api/3/issue/SEC-123/transitions'
+      )
+
+      // Should add comment
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+        '/rest/api/3/issue/SEC-123/comment',
+        {
+          body: {
+            type: 'doc',
+            version: 1,
+            content: [
+              {
+                type: 'paragraph',
+                content: [
+                  {
+                    type: 'text',
+                    text: 'Alert was resolved in GitHub'
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      )
+
+      // Should perform transition
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+        '/rest/api/3/issue/SEC-123/transitions',
+        {
+          transition: {
+            id: '31'
+          }
+        }
+      )
+
+      expect(result).toEqual({ closed: true })
+      expect(mockCore.info).toHaveBeenCalledWith(
+        'Closed Jira issue: SEC-123 using transition "Done"'
+      )
+    })
+
+    it('should handle dry run mode', async () => {
+      const result = await closeJiraIssue(
+        mockAxiosInstance,
+        'SEC-123',
+        'Done',
+        'Test comment',
+        true
+      )
+
+      expect(mockAxiosInstance.get).not.toHaveBeenCalled()
+      expect(mockAxiosInstance.post).not.toHaveBeenCalled()
+      expect(result).toEqual({ closed: false, dryRun: true })
+      expect(mockCore.info).toHaveBeenCalledWith(
+        '[DRY RUN] Would close Jira issue SEC-123 with transition "Done"'
+      )
+    })
+
+    it('should handle case-insensitive transition names', async () => {
+      mockAxiosInstance.post.mockResolvedValue({ data: {} })
+
+      await closeJiraIssue(
+        mockAxiosInstance,
+        'SEC-123',
+        'done', // lowercase
+        'Test comment',
+        false
+      )
+
+      // Should still find the "Done" transition
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+        '/rest/api/3/issue/SEC-123/transitions',
+        {
+          transition: {
+            id: '31'
+          }
+        }
+      )
+    })
+
+    it('should error when transition not available', async () => {
+      await expect(
+        closeJiraIssue(
+          mockAxiosInstance,
+          'SEC-123',
+          'Invalid Transition',
+          'Test comment',
+          false
+        )
+      ).rejects.toThrow(
+        'Transition "Invalid Transition" not available. Available transitions: Done, In Progress, Resolved'
+      )
+    })
+
+    it('should handle API errors', async () => {
+      const apiError = new Error('Transition failed')
+      mockAxiosInstance.post
+        .mockResolvedValueOnce({ data: {} }) // Comment succeeds
+        .mockRejectedValueOnce(apiError) // Transition fails
+
+      await expect(
+        closeJiraIssue(
+          mockAxiosInstance,
+          'SEC-123',
+          'Done',
+          'Test comment',
+          false
+        )
+      ).rejects.toThrow('Transition failed')
+
+      expect(mockCore.error).toHaveBeenCalledWith(
+        'Failed to close Jira issue SEC-123: Transition failed'
+      )
+    })
+
+    it('should work without comment', async () => {
+      mockAxiosInstance.post.mockResolvedValue({ data: {} })
+
+      await closeJiraIssue(
+        mockAxiosInstance,
+        'SEC-123',
+        'Done',
+        '', // No comment
+        false
+      )
+
+      // Should only call transition, not comment API
+      expect(mockAxiosInstance.post).toHaveBeenCalledTimes(1)
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+        '/rest/api/3/issue/SEC-123/transitions',
+        {
+          transition: {
+            id: '31'
+          }
+        }
       )
     })
   })

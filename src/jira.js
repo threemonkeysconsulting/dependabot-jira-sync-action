@@ -205,3 +205,134 @@ ${alert.dismissedComment ? `*Dismissed Comment:* ${alert.dismissedComment}` : ''
     throw error
   }
 }
+
+/**
+ * Find all open Dependabot issues in a Jira project
+ * @param {Object} jiraClient - Axios instance for Jira API
+ * @param {string} projectKey - Jira project key
+ * @returns {Promise<Array>} Array of open Dependabot issues
+ */
+export async function findOpenDependabotIssues(jiraClient, projectKey) {
+  const jql = `project = "${projectKey}" AND labels = "dependabot" AND status != "Done" AND status != "Resolved" AND status != "Closed"`
+
+  core.info(`Searching for open Dependabot issues in project ${projectKey}`)
+
+  try {
+    const response = await jiraClient.get('/rest/api/3/search', {
+      params: {
+        jql,
+        fields: 'key,summary,description,status',
+        maxResults: 100
+      }
+    })
+
+    const issues = response.data.issues || []
+    core.info(`Found ${issues.length} open Dependabot issues`)
+    return issues
+  } catch (error) {
+    core.warning(
+      `Failed to search for open Dependabot issues: ${error.message}`
+    )
+    return []
+  }
+}
+
+/**
+ * Extract Dependabot alert ID from Jira issue
+ * @param {Object} issue - Jira issue object
+ * @returns {string|null} Alert ID or null if not found
+ */
+export function extractAlertIdFromIssue(issue) {
+  // Try to extract from summary first: "Dependabot Alert #123: ..."
+  const summaryMatch = issue.summary?.match(/Dependabot Alert #(\d+)/)
+  if (summaryMatch) {
+    return summaryMatch[1]
+  }
+
+  // Try to extract from description: "Alert ID: 123"
+  const descriptionMatch = issue.description?.match(/Alert ID:\s*(\d+)/)
+  if (descriptionMatch) {
+    return descriptionMatch[1]
+  }
+
+  core.warning(`Could not extract alert ID from issue ${issue.key}`)
+  return null
+}
+
+/**
+ * Close a Jira issue with a transition
+ * @param {Object} jiraClient - Axios instance for Jira API
+ * @param {string} issueKey - Jira issue key
+ * @param {string} transition - Transition name (e.g., "Done")
+ * @param {string} comment - Comment to add when closing
+ * @param {boolean} dryRun - Whether this is a dry run
+ * @returns {Promise<Object>} Result of the operation
+ */
+export async function closeJiraIssue(
+  jiraClient,
+  issueKey,
+  transition,
+  comment,
+  dryRun = false
+) {
+  if (dryRun) {
+    core.info(
+      `[DRY RUN] Would close Jira issue ${issueKey} with transition "${transition}"`
+    )
+    return { closed: false, dryRun: true }
+  }
+
+  try {
+    // First, get available transitions for the issue
+    const transitionsResponse = await jiraClient.get(
+      `/rest/api/3/issue/${issueKey}/transitions`
+    )
+    const availableTransitions = transitionsResponse.data.transitions || []
+
+    // Find the transition by name (case-insensitive)
+    const targetTransition = availableTransitions.find(
+      (t) => t.name.toLowerCase() === transition.toLowerCase()
+    )
+
+    if (!targetTransition) {
+      const availableNames = availableTransitions.map((t) => t.name).join(', ')
+      throw new Error(
+        `Transition "${transition}" not available. Available transitions: ${availableNames}`
+      )
+    }
+
+    // Add comment first
+    if (comment) {
+      await jiraClient.post(`/rest/api/3/issue/${issueKey}/comment`, {
+        body: {
+          type: 'doc',
+          version: 1,
+          content: [
+            {
+              type: 'paragraph',
+              content: [
+                {
+                  type: 'text',
+                  text: comment
+                }
+              ]
+            }
+          ]
+        }
+      })
+    }
+
+    // Perform the transition
+    await jiraClient.post(`/rest/api/3/issue/${issueKey}/transitions`, {
+      transition: {
+        id: targetTransition.id
+      }
+    })
+
+    core.info(`Closed Jira issue: ${issueKey} using transition "${transition}"`)
+    return { closed: true }
+  } catch (error) {
+    core.error(`Failed to close Jira issue ${issueKey}: ${error.message}`)
+    throw error
+  }
+}

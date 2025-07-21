@@ -1,26 +1,33 @@
 # Dependabot Jira Sync Action
 
-![GitHub Super-Linter](https://github.com/yourusername/dependabot-jira-sync-action/actions/workflows/linter.yml/badge.svg)
-![CI](https://github.com/yourusername/dependabot-jira-sync-action/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/threemonkeysconsulting/dependabot-jira-sync-action/actions/workflows/ci.yml/badge.svg)
 ![Code Coverage](./badges/coverage.svg)
 
 A GitHub Action that automatically syncs Dependabot security alerts to Jira
 issues with **configurable due dates based on severity levels**.
 
+🏢 **Enterprise-ready** with GitHub App authentication for enhanced security and
+scalability.
+
 ## ✨ Features
 
+- 🔐 **Enterprise-Ready Authentication**: GitHub App authentication
+  (recommended) with fine-grained permissions and auto-rotating tokens
 - 🛡️ **Automatic Security Alert Sync**: Fetches Dependabot alerts and creates
   corresponding Jira issues
 - ⏰ **Severity-Based Due Dates**: Configure different due dates for critical,
   high, medium, and low severity alerts
 - 🔄 **Smart Updates**: Updates existing Jira issues when alerts change or are
   dismissed
+- 🎯 **Auto-Close Resolved Issues**: Automatically closes Jira issues when
+  Dependabot alerts are fixed or dismissed in GitHub
 - 🧪 **Dry Run Mode**: Test the action without making actual changes
 - 🎯 **Flexible Filtering**: Filter by severity threshold and dismissed status
 - 📝 **Rich Issue Details**: Includes vulnerability details, CVSS scores, CVE
   IDs, and GitHub links
 - 🔧 **Highly Configurable**: Customize Jira project, issue types, priorities,
   labels, and assignments
+- 🧪 **Comprehensive Testing**: 80%+ code coverage with extensive unit tests
 
 ## 🚀 Quick Start
 
@@ -43,13 +50,14 @@ jobs:
         with:
           # GitHub Authentication - Choose ONE method:
 
-          # Option 1: Personal Access Token (PAT)
-          github-token: ${{ secrets.DEPENDABOT_PAT }}
+          # Option 1: GitHub App (Recommended)
+          github-app-id: ${{ secrets.DEPENDABOT_APP_ID }}
+          github-app-private-key: ${{ secrets.DEPENDABOT_APP_PRIVATE_KEY }}
+          github-app-installation-id:
+            ${{ secrets.DEPENDABOT_APP_INSTALLATION_ID }}
 
-          # Option 2: GitHub App (Alternative to PAT)
-          # github-app-id: ${{ secrets.DEPENDABOT_APP_ID }}
-          # github-app-private-key: ${{ secrets.DEPENDABOT_APP_PRIVATE_KEY }}
-          # github-app-installation-id: ${{ secrets.DEPENDABOT_APP_INSTALLATION_ID }}
+          # Option 2: Personal Access Token (Alternative)
+          # github-token: ${{ secrets.DEPENDABOT_PAT }}
 
           # Jira Configuration
           jira-url: 'https://yourcompany.atlassian.net'
@@ -82,8 +90,11 @@ jobs:
       - name: Sync Critical and High Severity Alerts
         uses: yourusername/dependabot-jira-sync-action@v1
         with:
-          # GitHub Configuration
-          github-token: ${{ secrets.PAT_TOKEN }} # Use PAT for better rate limits
+          # GitHub App Authentication (Recommended)
+          github-app-id: ${{ secrets.DEPENDABOT_APP_ID }}
+          github-app-private-key: ${{ secrets.DEPENDABOT_APP_PRIVATE_KEY }}
+          github-app-installation-id:
+            ${{ secrets.DEPENDABOT_APP_INSTALLATION_ID }}
 
           # Jira Configuration
           jira-url: ${{ secrets.JIRA_URL }}
@@ -107,6 +118,9 @@ jobs:
 
           # Behavior Configuration
           update-existing: 'true' # Update existing issues
+          auto-close-resolved: 'true' # Auto-close when alerts are resolved
+          close-transition: 'Done' # Jira transition for closing issues
+          close-comment: 'This issue has been automatically closed because the associated Dependabot alert was resolved.'
           dry-run: 'false' # Make actual changes
 ```
 
@@ -140,10 +154,10 @@ jobs:
 
 | Input               | Description                               | Default | Required |
 | ------------------- | ----------------------------------------- | ------- | -------- |
-| `critical-due-days` | Days until due for critical issues        | `1`     | ❌       |
-| `high-due-days`     | Days until due for high severity issues   | `7`     | ❌       |
-| `medium-due-days`   | Days until due for medium severity issues | `30`    | ❌       |
-| `low-due-days`      | Days until due for low severity issues    | `90`    | ❌       |
+| `critical-due-days` | Days until due for critical issues        | `7`     | ❌       |
+| `high-due-days`     | Days until due for high severity issues   | `14`     | ❌       |
+| `medium-due-days`   | Days until due for medium severity issues | `60`    | ❌       |
+| `low-due-days`      | Days until due for low severity issues    | `120`    | ❌       |
 
 ### Filter Configuration
 
@@ -154,19 +168,23 @@ jobs:
 
 ### Behavior Configuration
 
-| Input             | Description                 | Default | Required |
-| ----------------- | --------------------------- | ------- | -------- |
-| `update-existing` | Update existing Jira issues | `true`  | ❌       |
-| `dry-run`         | Only log what would be done | `false` | ❌       |
+| Input                 | Description                                    | Default                                                                 | Required |
+| --------------------- | ---------------------------------------------- | ----------------------------------------------------------------------- | -------- |
+| `update-existing`     | Update existing Jira issues                   | `true`                                                                  | ❌       |
+| `auto-close-resolved` | Auto-close Jira issues when alerts are resolved | `true`                                                                  | ❌       |
+| `close-transition`    | Jira transition name to close issues          | `Done`                                                                  | ❌       |
+| `close-comment`       | Comment to add when auto-closing issues       | `This issue has been automatically closed because the associated Dependabot alert was resolved.` | ❌       |
+| `dry-run`             | Only log what would be done                   | `false`                                                                 | ❌       |
 
 ## 📤 Outputs
 
-| Output             | Description                       | Example                                             |
-| ------------------ | --------------------------------- | --------------------------------------------------- |
-| `issues-created`   | Number of new Jira issues created | `3`                                                 |
-| `issues-updated`   | Number of existing issues updated | `1`                                                 |
-| `alerts-processed` | Total alerts processed            | `4`                                                 |
-| `summary`          | Summary of the operation          | `Created 3 new issues and updated 1 existing issue` |
+| Output             | Description                           | Example                                                         |
+| ------------------ | ------------------------------------- | --------------------------------------------------------------- |
+| `issues-created`   | Number of new Jira issues created     | `3`                                                             |
+| `issues-updated`   | Number of existing issues updated     | `1`                                                             |
+| `issues-closed`    | Number of issues closed automatically | `2`                                                             |
+| `alerts-processed` | Total alerts processed                | `4`                                                             |
+| `summary`          | Summary of the operation              | `Created 3 new issues, updated 1 existing issue, and closed 2 resolved issues` |
 
 ## 🔧 Setup Requirements
 
@@ -177,21 +195,13 @@ jobs:
 2. Click "Create API token"
 3. Add the token as `JIRA_API_TOKEN` in your repository secrets
 
+NOTE: The `jira-username` must match the owner of the API token
+
 ### 2. GitHub Authentication
 
 **Choose ONE of the following authentication methods:**
 
-#### Option A: Personal Access Token (PAT) 🔑
-
-1. Go to **Settings** → **Developer settings** → **Personal access tokens** →
-   **Tokens (classic)**
-2. Click **"Generate new token"**
-3. Select scopes:
-   - ✅ `security_events` (read security events)
-   - ✅ `repo` (access repositories)
-4. Add token as `DEPENDABOT_PAT` in repository secrets
-
-#### Option B: GitHub App (Recommended for Organizations) 🏢
+#### Option A: GitHub App (⭐ Recommended) 🏢
 
 1. **Create GitHub App:**
    - Go to **Settings** → **Developer settings** → **GitHub Apps** → **New
@@ -219,8 +229,18 @@ jobs:
 - ✅ Auto-rotating tokens
 - ✅ Better for enterprise security
 
+#### Option B: Personal Access Token (Alternative) 🔑
+
+1. Go to **Settings** → **Developer settings** → **Personal access tokens** →
+   **Tokens (classic)**
+2. Click **"Generate new token"**
+3. Select scopes:
+   - ✅ `security_events` (read security events)
+   - ✅ `repo` (access repositories)
+4. Add token as `DEPENDABOT_PAT` in repository secrets
+
 **Note:** The default `GITHUB_TOKEN` has limited access to Dependabot alerts.
-You must use either a PAT or GitHub App for this action to work properly.
+You must use either a GitHub App or PAT for this action to work properly.
 
 ### 3. Jira Permissions
 
@@ -281,6 +301,39 @@ Test the action without making changes:
     dry-run: 'true' # 🧪 No actual changes will be made
 ```
 
+## 🎯 Auto-Close Functionality
+
+The action can automatically close Jira issues when the corresponding Dependabot alerts are resolved in GitHub. This ensures your Jira board stays clean and up-to-date.
+
+### How It Works
+
+1. **After processing new alerts**, the action searches for existing open Jira issues labeled with "dependabot"
+2. **Extracts alert IDs** from issue titles (e.g., "Dependabot Alert #42") or descriptions
+3. **Checks GitHub** to verify the current status of each alert
+4. **Automatically closes** Jira issues where alerts are:
+   - ✅ **Fixed** (patched by a dependency update)
+   - ✅ **Dismissed** (manually dismissed in GitHub)
+   - ✅ **Not Found** (alert was deleted)
+
+### Configuration
+
+```yaml
+auto-close-resolved: 'true'
+close-transition: 'Done' # Your Jira workflow transition
+close-comment: 'Alert was automatically resolved in GitHub'
+```
+
+### Example Log Output
+
+```
+🔄 Checking for resolved alerts to auto-close...
+🔍 Found 3 open Dependabot issues in Jira
+✅ Alert #42 is fixed - closing issue SEC-123
+ℹ️  Alert #43 is still open - keeping issue SEC-124 open
+❌ Alert #44 not found - closing issue SEC-125
+📊 Auto-closed 2 resolved issues
+```
+
 ## 📊 Monitoring & Observability
 
 The action provides detailed logging:
@@ -297,10 +350,16 @@ The action provides detailed logging:
 ℹ️  Found existing issue: TEST-100
 ✅ Updated Jira issue: TEST-100
 
+🔄 Checking for resolved alerts to auto-close...
+🔍 Found 2 open Dependabot issues
+✅ Alert #39 is fixed - closing issue TEST-95
+ℹ️  Alert #40 is still open - keeping issue TEST-98 open
+
 📊 Summary:
 - Alerts processed: 3
 - Issues created: 1
 - Issues updated: 1
+- Issues closed: 1
 ✅ Dependabot Jira Sync completed successfully
 ```
 

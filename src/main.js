@@ -1,10 +1,18 @@
 import * as core from '@actions/core'
-import { getRepoInfo, getDependabotAlerts, parseAlert } from './github.js'
+import {
+  getRepoInfo,
+  getDependabotAlerts,
+  parseAlert,
+  getAlertStatus
+} from './github.js'
 import {
   createJiraClient,
   findExistingIssue,
   createJiraIssue,
-  updateJiraIssue
+  updateJiraIssue,
+  findOpenDependabotIssues,
+  extractAlertIdFromIssue,
+  closeJiraIssue
 } from './jira.js'
 
 /**
@@ -40,6 +48,11 @@ function getConfig() {
     },
     behavior: {
       updateExisting: core.getBooleanInput('update-existing') !== false,
+      autoCloseResolved: core.getBooleanInput('auto-close-resolved') !== false,
+      closeTransition: core.getInput('close-transition') || 'Done',
+      closeComment:
+        core.getInput('close-comment') ||
+        'This issue has been automatically closed because the associated Dependabot alert was resolved.',
       dryRun: core.getBooleanInput('dry-run') === true
     }
   }
@@ -142,15 +155,95 @@ export async function run() {
       }
     }
 
+    // Auto-close resolved issues if enabled
+    let issuesClosed = 0
+    if (config.behavior.autoCloseResolved) {
+      core.info('\n🔄 Checking for resolved alerts to auto-close...')
+
+      try {
+        // Find all open Dependabot issues in Jira
+        const openIssues = await findOpenDependabotIssues(
+          jiraClient,
+          config.jira.projectKey
+        )
+
+        for (const issue of openIssues) {
+          try {
+            // Extract alert ID from the issue
+            const alertId = extractAlertIdFromIssue(issue)
+            if (!alertId) {
+              continue // Skip if we can't extract alert ID
+            }
+
+            // Check status of the alert in GitHub
+            const alertStatus = await getAlertStatus(owner, repo, alertId)
+
+            // Close issue if alert is resolved
+            if (
+              alertStatus === 'fixed' ||
+              alertStatus === 'dismissed' ||
+              alertStatus === 'not_found'
+            ) {
+              const reason =
+                alertStatus === 'not_found'
+                  ? 'Alert was deleted from GitHub'
+                  : `Alert was ${alertStatus} in GitHub`
+
+              const closeComment = `${config.behavior.closeComment}\n\nReason: ${reason}`
+
+              await closeJiraIssue(
+                jiraClient,
+                issue.key,
+                config.behavior.closeTransition,
+                closeComment,
+                config.behavior.dryRun
+              )
+
+              issuesClosed++
+
+              if (!config.behavior.dryRun) {
+                core.info(
+                  `🔒 Closed Jira issue ${issue.key} (Alert #${alertId} was ${alertStatus})`
+                )
+              }
+            } else if (alertStatus === 'open') {
+              core.debug(
+                `Alert #${alertId} is still open, keeping Jira issue ${issue.key} open`
+              )
+            } else {
+              core.warning(
+                `Unknown status '${alertStatus}' for alert #${alertId}, keeping issue ${issue.key} open`
+              )
+            }
+          } catch (error) {
+            core.warning(
+              `Failed to process issue ${issue.key} for auto-close: ${error.message}`
+            )
+            // Continue with other issues
+          }
+        }
+
+        core.info(
+          `Processed ${openIssues.length} open Dependabot issues for auto-close`
+        )
+      } catch (error) {
+        core.warning(`Auto-close phase failed: ${error.message}`)
+        // Don't fail the entire action for auto-close issues
+      }
+    } else {
+      core.info('Auto-close feature is disabled')
+    }
+
     // Generate summary
     const summary = config.behavior.dryRun
-      ? `DRY RUN: Would create ${issuesCreated} issues and update ${issuesUpdated} issues`
-      : `Created ${issuesCreated} new issues and updated ${issuesUpdated} existing issues`
+      ? `DRY RUN: Would create ${issuesCreated} issues, update ${issuesUpdated} issues, and close ${issuesClosed} issues`
+      : `Created ${issuesCreated} new issues, updated ${issuesUpdated} existing issues, and closed ${issuesClosed} resolved issues`
 
     core.info(`\n📊 Summary:`)
     core.info(`- Alerts processed: ${processedAlerts.length}`)
     core.info(`- Issues created: ${issuesCreated}`)
     core.info(`- Issues updated: ${issuesUpdated}`)
+    core.info(`- Issues closed: ${issuesClosed}`)
 
     if (config.behavior.dryRun) {
       core.info(`- Mode: DRY RUN (no actual changes made)`)
@@ -159,6 +252,7 @@ export async function run() {
     // Set outputs
     core.setOutput('issues-created', issuesCreated.toString())
     core.setOutput('issues-updated', issuesUpdated.toString())
+    core.setOutput('issues-closed', issuesClosed.toString())
     core.setOutput('alerts-processed', processedAlerts.length.toString())
     core.setOutput('summary', summary)
 

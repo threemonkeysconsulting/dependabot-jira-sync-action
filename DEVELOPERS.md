@@ -26,9 +26,23 @@ graph TB
     M --> O[Add Comment]
     N --> P[Create Issue + Due Date]
 
+    %% Auto-close flow
+    B --> Q[Auto-Close Phase]
+    Q --> R[findOpenDependabotIssues]
+    R --> S[extractAlertIdFromIssue]
+    S --> T[getAlertStatus]
+    T --> U{Alert Resolved?}
+    U -->|Yes| V[closeJiraIssue]
+    U -->|No| W[Keep Open]
+
+    V --> X[Add Close Comment]
+    V --> Y[Transition to Done]
+
     style B fill:#e1f5fe
     style G fill:#fff3e0
     style H fill:#f3e5f5
+    style Q fill:#e8f5e8
+    style V fill:#ffe8e8
 ```
 
 ## 📂 Code Structure
@@ -217,6 +231,71 @@ ${alert.dismissedComment ? `*Dismissed Comment:* ${alert.dismissedComment}` : ''
 await jiraClient.post(`/issue/${issueKey}/comment`, { body: comment })
 ```
 
+### 8. **Auto-Close Functionality**
+
+After processing all new/updated alerts, the action performs lifecycle
+management:
+
+```javascript
+// main.js: Auto-close phase
+if (config.behavior.autoCloseResolved) {
+  const openIssues = await findOpenDependabotIssues(jiraClient, projectKey)
+
+  for (const issue of openIssues) {
+    const alertId = extractAlertIdFromIssue(issue)
+    if (alertId) {
+      const status = await getAlertStatus(owner, repo, alertId)
+      if (['fixed', 'dismissed', 'not_found'].includes(status)) {
+        await closeJiraIssue(jiraClient, issue.key, transition, comment)
+      }
+    }
+  }
+}
+```
+
+**Key Functions:**
+
+1. **`findOpenDependabotIssues()`** - JQL search for open Dependabot issues:
+
+   ```javascript
+   const jql = `project = "${projectKey}" AND labels = "dependabot" AND status != "Done" AND status != "Resolved" AND status != "Closed"`
+   ```
+
+2. **`extractAlertIdFromIssue()`** - Extract alert ID from issue:
+
+   ```javascript
+   // From title: "Dependabot Alert #42: ..."
+   const titleMatch = issue.summary?.match(/Dependabot Alert #(\d+)/)
+   // From description: "Alert ID: 42"
+   const descMatch = issue.description?.match(/Alert ID:\s*(\d+)/)
+   ```
+
+3. **`getAlertStatus()`** - Check current alert status in GitHub:
+
+   ```javascript
+   const response = await octokit.rest.dependabot.getAlert({
+     owner,
+     repo,
+     alert_number: parseInt(alertId)
+   })
+   return response.data.state // 'open'|'fixed'|'dismissed'
+   ```
+
+4. **`closeJiraIssue()`** - Close with workflow transition:
+
+   ```javascript
+   // Get available transitions
+   const transitions = await jiraClient.get(`/issue/${issueKey}/transitions`)
+   const transition = transitions.data.transitions.find(
+     (t) => t.name.toLowerCase() === transitionName.toLowerCase()
+   )
+
+   // Perform transition
+   await jiraClient.post(`/issue/${issueKey}/transitions`, {
+     transition: { id: transition.id }
+   })
+   ```
+
 ## 🔧 API Integration Details
 
 ### GitHub API Integration
@@ -271,6 +350,40 @@ client.interceptors.response.use(
 ```
 
 ## 🧪 Testing Strategy
+
+### Current Test Coverage
+
+🎯 **80.93% overall code coverage** with 53 comprehensive tests:
+
+- **Jira module**: 95.12% coverage (30 tests)
+- **GitHub module**: 77.46% coverage (16 tests)
+- **Main module**: 69.87% coverage (6 tests)
+
+### Test Structure by Module
+
+#### GitHub API Tests (`__tests__/github.test.js`)
+
+- `getRepoInfo` - Repository parsing
+- `getDependabotAlerts` - Alert fetching and filtering
+- `parseAlert` - Alert data transformation
+- `getAlertStatus` - **New**: Alert status checking for auto-close
+
+#### Jira API Tests (`__tests__/jira.test.js`)
+
+- `createJiraClient` - Client configuration
+- `calculateDueDate` - Severity-based due dates
+- `findExistingIssue` - Issue search and matching
+- `createJiraIssue` - Issue creation with all fields
+- `updateJiraIssue` - Issue updates and comments
+- `findOpenDependabotIssues` - **New**: Auto-close issue discovery
+- `extractAlertIdFromIssue` - **New**: Alert ID extraction from issues
+- `closeJiraIssue` - **New**: Auto-close workflow with transitions
+
+#### Integration Tests (`__tests__/main.test.js`)
+
+- End-to-end workflow scenarios
+- Error handling and validation
+- Dry run mode behavior
 
 ### Unit Test Structure
 

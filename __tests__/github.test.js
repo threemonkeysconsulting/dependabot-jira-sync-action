@@ -15,7 +15,8 @@ const mockCore = {
 const mockOctokit = {
   rest: {
     dependabot: {
-      listAlertsForRepo: jest.fn()
+      listAlertsForRepo: jest.fn(),
+      getAlert: jest.fn()
     }
   }
 }
@@ -34,9 +35,8 @@ jest.unstable_mockModule('jsonwebtoken', () => ({
 }))
 
 // Import the functions we want to test
-const { getRepoInfo, getDependabotAlerts, parseAlert } = await import(
-  '../src/github.js'
-)
+const { getRepoInfo, getDependabotAlerts, parseAlert, getAlertStatus } =
+  await import('../src/github.js')
 
 describe('GitHub API Functions', () => {
   beforeEach(() => {
@@ -281,6 +281,127 @@ describe('GitHub API Functions', () => {
       expect(result.dismissedAt).toBe('2023-01-05T00:00:00Z')
       expect(result.dismissedReason).toBe('tolerable_risk')
       expect(result.dismissedComment).toBe('Risk accepted by security team')
+    })
+  })
+
+  describe('getAlertStatus', () => {
+    beforeEach(() => {
+      // Mock successful token authentication
+      mockCore.getInput.mockImplementation((name) => {
+        if (name === 'github-token') return 'mock-token'
+        return ''
+      })
+    })
+
+    it('should return "open" for open alerts', async () => {
+      const mockAlert = {
+        data: {
+          number: 42,
+          state: 'open'
+        }
+      }
+
+      mockOctokit.rest.dependabot.getAlert.mockResolvedValue(mockAlert)
+
+      const result = await getAlertStatus('owner', 'repo', '42')
+
+      expect(mockOctokit.rest.dependabot.getAlert).toHaveBeenCalledWith({
+        owner: 'owner',
+        repo: 'repo',
+        alert_number: 42
+      })
+
+      expect(result).toBe('open')
+      expect(mockCore.info).toHaveBeenCalledWith('Checking status of alert #42')
+    })
+
+    it('should return "dismissed" for dismissed alerts', async () => {
+      const mockAlert = {
+        data: {
+          number: 42,
+          state: 'dismissed'
+        }
+      }
+
+      mockOctokit.rest.dependabot.getAlert.mockResolvedValue(mockAlert)
+
+      const result = await getAlertStatus('owner', 'repo', '42')
+
+      expect(result).toBe('dismissed')
+    })
+
+    it('should return "fixed" for fixed alerts', async () => {
+      const mockAlert = {
+        data: {
+          number: 42,
+          state: 'fixed'
+        }
+      }
+
+      mockOctokit.rest.dependabot.getAlert.mockResolvedValue(mockAlert)
+
+      const result = await getAlertStatus('owner', 'repo', '42')
+
+      expect(result).toBe('fixed')
+    })
+
+    it('should return original state for unknown states', async () => {
+      const mockAlert = {
+        data: {
+          number: 42,
+          state: 'unknown_state'
+        }
+      }
+
+      mockOctokit.rest.dependabot.getAlert.mockResolvedValue(mockAlert)
+
+      const result = await getAlertStatus('owner', 'repo', '42')
+
+      expect(result).toBe('unknown_state')
+    })
+
+    it('should return "not_found" for 404 errors', async () => {
+      const notFoundError = new Error('Not Found')
+      notFoundError.status = 404
+      mockOctokit.rest.dependabot.getAlert.mockRejectedValue(notFoundError)
+
+      const result = await getAlertStatus('owner', 'repo', '999')
+
+      expect(result).toBe('not_found')
+      expect(mockCore.info).toHaveBeenCalledWith(
+        'Alert #999 not found (may have been deleted)'
+      )
+    })
+
+    it('should return "unknown" for other API errors', async () => {
+      const apiError = new Error('API rate limit exceeded')
+      mockOctokit.rest.dependabot.getAlert.mockRejectedValue(apiError)
+
+      const result = await getAlertStatus('owner', 'repo', '42')
+
+      expect(result).toBe('unknown')
+      expect(mockCore.warning).toHaveBeenCalledWith(
+        'Failed to check status of alert #42: API rate limit exceeded'
+      )
+    })
+
+    it('should handle string alert IDs', async () => {
+      const mockAlert = {
+        data: {
+          number: 42,
+          state: 'open'
+        }
+      }
+
+      mockOctokit.rest.dependabot.getAlert.mockResolvedValue(mockAlert)
+
+      await getAlertStatus('owner', 'repo', '42') // String ID
+
+      expect(mockOctokit.rest.dependabot.getAlert).toHaveBeenCalledWith({
+        owner: 'owner',
+        repo: 'repo',
+        alert_number: 42 // Should be converted to number
+      })
     })
   })
 })

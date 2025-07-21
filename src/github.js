@@ -183,3 +183,48 @@ export function parseAlert(alert) {
     dismissedComment: alert.dismissed_comment
   }
 }
+
+/**
+ * Get the status of a specific Dependabot alert
+ * @param {string} owner - Repository owner
+ * @param {string} repo - Repository name
+ * @param {string} alertId - Alert ID to check
+ * @returns {Promise<string>} Alert status: 'open', 'fixed', 'dismissed', or 'not_found'
+ */
+export async function getAlertStatus(owner, repo, alertId) {
+  const token = await getGitHubToken()
+  const octokit = getOctokit(token)
+
+  try {
+    core.info(`Checking status of alert #${alertId}`)
+
+    const response = await octokit.rest.dependabot.getAlert({
+      owner,
+      repo,
+      alert_number: parseInt(alertId, 10)
+    })
+
+    const alert = response.data
+
+    // Map GitHub states to our simplified states
+    if (alert.state === 'open') {
+      return 'open'
+    } else if (alert.state === 'dismissed') {
+      return 'dismissed'
+    } else if (alert.state === 'fixed') {
+      return 'fixed'
+    } else {
+      return alert.state // Return whatever GitHub says
+    }
+  } catch (error) {
+    if (error.status === 404) {
+      core.info(`Alert #${alertId} not found (may have been deleted)`)
+      return 'not_found'
+    }
+
+    core.warning(
+      `Failed to check status of alert #${alertId}: ${error.message}`
+    )
+    return 'unknown'
+  }
+}

@@ -50,14 +50,14 @@ jobs:
         with:
           # GitHub Authentication - Choose ONE method:
 
-          # Option 1: Personal Access Token (PAT)
-          # github-token: ${{ secrets.DEPENDABOT_PAT }}
-
-          # Option 2: GitHub App (Uncomment to use instead of PAT)
+          # Option 1: GitHub App (Recommended)
           github-app-id: ${{ secrets.DEPENDABOT_APP_ID }}
           github-app-private-key: ${{ secrets.DEPENDABOT_APP_PRIVATE_KEY }}
           github-app-installation-id:
             ${{ secrets.DEPENDABOT_APP_INSTALLATION_ID }}
+
+          # Option 2: Personal Access Token (Alternative)
+          # github-token: ${{ secrets.DEPENDABOT_PAT }}
 
           # Jira Configuration (Required)
           jira-url: 'https://threemonkeys.atlassian.net'

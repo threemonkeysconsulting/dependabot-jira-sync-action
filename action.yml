@@ -1,8 +1,9 @@
 name: 'Dependabot Jira Sync'
 description:
-  'Sync Dependabot alerts to Jira issues with configurable due dates based on
-  severity'
-author: 'Your Name'
+  'Automatically sync Dependabot security alerts to Jira issues with
+  severity-based due dates. Supports GitHub App authentication (recommended) and
+  Personal Access Tokens.'
+author: 'Three Monkeys Consulting'
 
 # Add your action's branding here. This will appear on the GitHub Marketplace.
 branding:
@@ -67,19 +68,19 @@ inputs:
   critical-due-days:
     description: 'Days until due date for critical severity issues'
     required: false
-    default: '1'
+    default: '7'
   high-due-days:
     description: 'Days until due date for high severity issues'
     required: false
-    default: '7'
+    default: '14'
   medium-due-days:
     description: 'Days until due date for medium severity issues'
     required: false
-    default: '30'
+    default: '60'
   low-due-days:
     description: 'Days until due date for low severity issues'
     required: false
-    default: '90'
+    default: '120'
 
   # Filter Configuration
   severity-threshold:
@@ -97,6 +98,22 @@ inputs:
     description: 'Whether to update existing Jira issues when alerts change'
     required: false
     default: 'true'
+  auto-close-resolved:
+    description:
+      'Automatically close Jira issues when Dependabot alerts are resolved'
+    required: false
+    default: 'true'
+  close-transition:
+    description:
+      'Jira transition name to close issues (e.g., "Done", "Resolved")'
+    required: false
+    default: 'Done'
+  close-comment:
+    description: 'Comment to add when auto-closing resolved issues'
+    required: false
+    default:
+      'This issue has been automatically closed because the associated
+      Dependabot alert was resolved.'
   dry-run:
     description: 'If true, only log what would be done without making changes'
     required: false
@@ -108,6 +125,8 @@ outputs:
     description: 'Number of new Jira issues created'
   issues-updated:
     description: 'Number of existing Jira issues updated'
+  issues-closed:
+    description: 'Number of Jira issues closed due to resolved alerts'
   alerts-processed:
     description: 'Total number of Dependabot alerts processed'
   summary:

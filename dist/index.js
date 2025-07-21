@@ -37798,6 +37798,51 @@ function parseAlert(alert) {
   }
 }
 
+/**
+ * Get the status of a specific Dependabot alert
+ * @param {string} owner - Repository owner
+ * @param {string} repo - Repository name
+ * @param {string} alertId - Alert ID to check
+ * @returns {Promise<string>} Alert status: 'open', 'fixed', 'dismissed', or 'not_found'
+ */
+async function getAlertStatus(owner, repo, alertId) {
+  const token = await getGitHubToken();
+  const octokit = githubExports.getOctokit(token);
+
+  try {
+    coreExports.info(`Checking status of alert #${alertId}`);
+
+    const response = await octokit.rest.dependabot.getAlert({
+      owner,
+      repo,
+      alert_number: parseInt(alertId, 10)
+    });
+
+    const alert = response.data;
+
+    // Map GitHub states to our simplified states
+    if (alert.state === 'open') {
+      return 'open'
+    } else if (alert.state === 'dismissed') {
+      return 'dismissed'
+    } else if (alert.state === 'fixed') {
+      return 'fixed'
+    } else {
+      return alert.state // Return whatever GitHub says
+    }
+  } catch (error) {
+    if (error.status === 404) {
+      coreExports.info(`Alert #${alertId} not found (may have been deleted)`);
+      return 'not_found'
+    }
+
+    coreExports.warning(
+      `Failed to check status of alert #${alertId}: ${error.message}`
+    );
+    return 'unknown'
+  }
+}
+
 function bind(fn, thisArg) {
   return function wrap() {
     return fn.apply(thisArg, arguments);
@@ -57956,6 +58001,137 @@ ${alert.dismissedComment ? `*Dismissed Comment:* ${alert.dismissedComment}` : ''
 }
 
 /**
+ * Find all open Dependabot issues in a Jira project
+ * @param {Object} jiraClient - Axios instance for Jira API
+ * @param {string} projectKey - Jira project key
+ * @returns {Promise<Array>} Array of open Dependabot issues
+ */
+async function findOpenDependabotIssues(jiraClient, projectKey) {
+  const jql = `project = "${projectKey}" AND labels = "dependabot" AND status != "Done" AND status != "Resolved" AND status != "Closed"`;
+
+  coreExports.info(`Searching for open Dependabot issues in project ${projectKey}`);
+
+  try {
+    const response = await jiraClient.get('/rest/api/3/search', {
+      params: {
+        jql,
+        fields: 'key,summary,description,status',
+        maxResults: 100
+      }
+    });
+
+    const issues = response.data.issues || [];
+    coreExports.info(`Found ${issues.length} open Dependabot issues`);
+    return issues
+  } catch (error) {
+    coreExports.warning(
+      `Failed to search for open Dependabot issues: ${error.message}`
+    );
+    return []
+  }
+}
+
+/**
+ * Extract Dependabot alert ID from Jira issue
+ * @param {Object} issue - Jira issue object
+ * @returns {string|null} Alert ID or null if not found
+ */
+function extractAlertIdFromIssue(issue) {
+  // Try to extract from summary first: "Dependabot Alert #123: ..."
+  const summaryMatch = issue.summary?.match(/Dependabot Alert #(\d+)/);
+  if (summaryMatch) {
+    return summaryMatch[1]
+  }
+
+  // Try to extract from description: "Alert ID: 123"
+  const descriptionMatch = issue.description?.match(/Alert ID:\s*(\d+)/);
+  if (descriptionMatch) {
+    return descriptionMatch[1]
+  }
+
+  coreExports.warning(`Could not extract alert ID from issue ${issue.key}`);
+  return null
+}
+
+/**
+ * Close a Jira issue with a transition
+ * @param {Object} jiraClient - Axios instance for Jira API
+ * @param {string} issueKey - Jira issue key
+ * @param {string} transition - Transition name (e.g., "Done")
+ * @param {string} comment - Comment to add when closing
+ * @param {boolean} dryRun - Whether this is a dry run
+ * @returns {Promise<Object>} Result of the operation
+ */
+async function closeJiraIssue(
+  jiraClient,
+  issueKey,
+  transition,
+  comment,
+  dryRun = false
+) {
+  if (dryRun) {
+    coreExports.info(
+      `[DRY RUN] Would close Jira issue ${issueKey} with transition "${transition}"`
+    );
+    return { closed: false, dryRun: true }
+  }
+
+  try {
+    // First, get available transitions for the issue
+    const transitionsResponse = await jiraClient.get(
+      `/rest/api/3/issue/${issueKey}/transitions`
+    );
+    const availableTransitions = transitionsResponse.data.transitions || [];
+
+    // Find the transition by name (case-insensitive)
+    const targetTransition = availableTransitions.find(
+      (t) => t.name.toLowerCase() === transition.toLowerCase()
+    );
+
+    if (!targetTransition) {
+      const availableNames = availableTransitions.map((t) => t.name).join(', ');
+      throw new Error(
+        `Transition "${transition}" not available. Available transitions: ${availableNames}`
+      )
+    }
+
+    // Add comment first
+    if (comment) {
+      await jiraClient.post(`/rest/api/3/issue/${issueKey}/comment`, {
+        body: {
+          type: 'doc',
+          version: 1,
+          content: [
+            {
+              type: 'paragraph',
+              content: [
+                {
+                  type: 'text',
+                  text: comment
+                }
+              ]
+            }
+          ]
+        }
+      });
+    }
+
+    // Perform the transition
+    await jiraClient.post(`/rest/api/3/issue/${issueKey}/transitions`, {
+      transition: {
+        id: targetTransition.id
+      }
+    });
+
+    coreExports.info(`Closed Jira issue: ${issueKey} using transition "${transition}"`);
+    return { closed: true }
+  } catch (error) {
+    coreExports.error(`Failed to close Jira issue ${issueKey}: ${error.message}`);
+    throw error
+  }
+}
+
+/**
  * Get input configuration from action inputs
  * @returns {Object} Configuration object
  */
@@ -57988,6 +58164,11 @@ function getConfig() {
     },
     behavior: {
       updateExisting: coreExports.getBooleanInput('update-existing') !== false,
+      autoCloseResolved: coreExports.getBooleanInput('auto-close-resolved') !== false,
+      closeTransition: coreExports.getInput('close-transition') || 'Done',
+      closeComment:
+        coreExports.getInput('close-comment') ||
+        'This issue has been automatically closed because the associated Dependabot alert was resolved.',
       dryRun: coreExports.getBooleanInput('dry-run') === true
     }
   }
@@ -58090,15 +58271,95 @@ async function run() {
       }
     }
 
+    // Auto-close resolved issues if enabled
+    let issuesClosed = 0;
+    if (config.behavior.autoCloseResolved) {
+      coreExports.info('\n🔄 Checking for resolved alerts to auto-close...');
+
+      try {
+        // Find all open Dependabot issues in Jira
+        const openIssues = await findOpenDependabotIssues(
+          jiraClient,
+          config.jira.projectKey
+        );
+
+        for (const issue of openIssues) {
+          try {
+            // Extract alert ID from the issue
+            const alertId = extractAlertIdFromIssue(issue);
+            if (!alertId) {
+              continue // Skip if we can't extract alert ID
+            }
+
+            // Check status of the alert in GitHub
+            const alertStatus = await getAlertStatus(owner, repo, alertId);
+
+            // Close issue if alert is resolved
+            if (
+              alertStatus === 'fixed' ||
+              alertStatus === 'dismissed' ||
+              alertStatus === 'not_found'
+            ) {
+              const reason =
+                alertStatus === 'not_found'
+                  ? 'Alert was deleted from GitHub'
+                  : `Alert was ${alertStatus} in GitHub`;
+
+              const closeComment = `${config.behavior.closeComment}\n\nReason: ${reason}`;
+
+              await closeJiraIssue(
+                jiraClient,
+                issue.key,
+                config.behavior.closeTransition,
+                closeComment,
+                config.behavior.dryRun
+              );
+
+              issuesClosed++;
+
+              if (!config.behavior.dryRun) {
+                coreExports.info(
+                  `🔒 Closed Jira issue ${issue.key} (Alert #${alertId} was ${alertStatus})`
+                );
+              }
+            } else if (alertStatus === 'open') {
+              coreExports.debug(
+                `Alert #${alertId} is still open, keeping Jira issue ${issue.key} open`
+              );
+            } else {
+              coreExports.warning(
+                `Unknown status '${alertStatus}' for alert #${alertId}, keeping issue ${issue.key} open`
+              );
+            }
+          } catch (error) {
+            coreExports.warning(
+              `Failed to process issue ${issue.key} for auto-close: ${error.message}`
+            );
+            // Continue with other issues
+          }
+        }
+
+        coreExports.info(
+          `Processed ${openIssues.length} open Dependabot issues for auto-close`
+        );
+      } catch (error) {
+        coreExports.warning(`Auto-close phase failed: ${error.message}`);
+        // Don't fail the entire action for auto-close issues
+      }
+    } else {
+      coreExports.info('Auto-close feature is disabled');
+    }
+
     // Generate summary
     const summary = config.behavior.dryRun
-      ? `DRY RUN: Would create ${issuesCreated} issues and update ${issuesUpdated} issues`
-      : `Created ${issuesCreated} new issues and updated ${issuesUpdated} existing issues`;
+      ? `DRY RUN: Would create ${issuesCreated} issues, update ${issuesUpdated} issues, and close ${issuesClosed} issues`
+      : `Created ${issuesCreated} new issues, updated ${issuesUpdated} existing issues, and closed ${issuesClosed} resolved issues`;
 
     coreExports.info(`\n📊 Summary:`);
     coreExports.info(`- Alerts processed: ${processedAlerts.length}`);
     coreExports.info(`- Issues created: ${issuesCreated}`);
     coreExports.info(`- Issues updated: ${issuesUpdated}`);
+    coreExports.info(`- Issues closed: ${issuesClosed}`);
 
     if (config.behavior.dryRun) {
       coreExports.info(`- Mode: DRY RUN (no actual changes made)`);
@@ -58107,6 +58368,7 @@ async function run() {
     // Set outputs
     coreExports.setOutput('issues-created', issuesCreated.toString());
     coreExports.setOutput('issues-updated', issuesUpdated.toString());
+    coreExports.setOutput('issues-closed', issuesClosed.toString());
     coreExports.setOutput('alerts-processed', processedAlerts.length.toString());
     coreExports.setOutput('summary', summary);
 

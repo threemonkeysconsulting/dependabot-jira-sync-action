@@ -18,14 +18,18 @@ const mockCore = {
 const mockGithub = {
   getRepoInfo: jest.fn(),
   getDependabotAlerts: jest.fn(),
-  parseAlert: jest.fn()
+  parseAlert: jest.fn(),
+  getAlertStatus: jest.fn()
 }
 
 const mockJira = {
   createJiraClient: jest.fn(),
   findExistingIssue: jest.fn(),
   createJiraIssue: jest.fn(),
-  updateJiraIssue: jest.fn()
+  updateJiraIssue: jest.fn(),
+  findOpenDependabotIssues: jest.fn(),
+  extractAlertIdFromIssue: jest.fn(),
+  closeJiraIssue: jest.fn()
 }
 
 // Mock the modules before importing the main function
@@ -68,6 +72,7 @@ describe('Dependabot Jira Sync', () => {
       const booleanInputs = {
         'exclude-dismissed': true,
         'update-existing': true,
+        'auto-close-resolved': false,
         'dry-run': false
       }
       return booleanInputs[name] || false
