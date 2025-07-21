@@ -96,48 +96,63 @@ describe('Jira API Functions', () => {
 
     it('should calculate due date for critical severity', () => {
       const dueDaysConfig = { critical: 1, high: 7, medium: 30, low: 90 }
+      const alertCreatedAt = '2023-01-10T08:00:00Z'
 
-      const result = calculateDueDate('critical', dueDaysConfig)
+      const result = calculateDueDate('critical', dueDaysConfig, alertCreatedAt)
 
-      expect(result).toBe('2023-01-16') // 1 day from mock date
+      expect(result).toBe('2023-01-11') // 1 day from alert creation date
     })
 
     it('should calculate due date for high severity', () => {
       const dueDaysConfig = { critical: 1, high: 7, medium: 30, low: 90 }
+      const alertCreatedAt = '2023-01-10T08:00:00Z'
 
-      const result = calculateDueDate('high', dueDaysConfig)
+      const result = calculateDueDate('high', dueDaysConfig, alertCreatedAt)
 
-      expect(result).toBe('2023-01-22') // 7 days from mock date
+      expect(result).toBe('2023-01-17') // 7 days from alert creation date
     })
 
     it('should calculate due date for medium severity', () => {
       const dueDaysConfig = { critical: 1, high: 7, medium: 30, low: 90 }
+      const alertCreatedAt = '2023-01-10T08:00:00Z'
 
-      const result = calculateDueDate('medium', dueDaysConfig)
+      const result = calculateDueDate('medium', dueDaysConfig, alertCreatedAt)
 
-      expect(result).toBe('2023-02-14') // 30 days from mock date
+      expect(result).toBe('2023-02-09') // 30 days from alert creation date
     })
 
     it('should calculate due date for low severity', () => {
       const dueDaysConfig = { critical: 1, high: 7, medium: 30, low: 90 }
+      const alertCreatedAt = '2023-01-10T08:00:00Z'
 
-      const result = calculateDueDate('low', dueDaysConfig)
+      const result = calculateDueDate('low', dueDaysConfig, alertCreatedAt)
 
-      expect(result).toBe('2023-04-15') // 90 days from mock date
+      expect(result).toBe('2023-04-10') // 90 days from alert creation date
     })
 
     it('should default to medium severity for unknown severity', () => {
       const dueDaysConfig = { critical: 1, high: 7, medium: 30, low: 90 }
+      const alertCreatedAt = '2023-01-10T08:00:00Z'
 
-      const result = calculateDueDate('unknown', dueDaysConfig)
+      const result = calculateDueDate('unknown', dueDaysConfig, alertCreatedAt)
 
-      expect(result).toBe('2023-02-14') // 30 days (medium default)
+      expect(result).toBe('2023-02-09') // 30 days (medium default) from alert creation date
     })
 
     it('should use fallback values if config is missing', () => {
-      const result = calculateDueDate('critical', {})
+      const alertCreatedAt = '2023-01-10T08:00:00Z'
 
-      expect(result).toBe('2023-01-16') // 1 day (fallback for critical)
+      const result = calculateDueDate('critical', {}, alertCreatedAt)
+
+      expect(result).toBe('2023-01-11') // 1 day fallback from alert creation date
+    })
+
+    it('should use current date when createdAt is not provided', () => {
+      const dueDaysConfig = { critical: 1, high: 7, medium: 30, low: 90 }
+
+      const result = calculateDueDate('critical', dueDaysConfig)
+
+      expect(result).toBe('2023-01-16') // 1 day from mock current date
     })
   })
 

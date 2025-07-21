@@ -16,7 +16,7 @@ scalability.
 - 🛡️ **Automatic Security Alert Sync**: Fetches Dependabot alerts and creates
   corresponding Jira issues
 - ⏰ **Severity-Based Due Dates**: Configure different due dates for critical,
-  high, medium, and low severity alerts
+  high, medium, and low severity alerts (calculated from alert creation date)
 - 🔄 **Smart Updates**: Updates existing Jira issues when alerts change or are
   dismissed
 - 🎯 **Auto-Close Resolved Issues**: Automatically closes Jira issues when
@@ -120,7 +120,9 @@ jobs:
           update-existing: 'true' # Update existing issues
           auto-close-resolved: 'true' # Auto-close when alerts are resolved
           close-transition: 'Done' # Jira transition for closing issues
-          close-comment: 'This issue has been automatically closed because the associated Dependabot alert was resolved.'
+          close-comment:
+            'This issue has been automatically closed because the associated
+            Dependabot alert was resolved.'
           dry-run: 'false' # Make actual changes
 ```
 
@@ -152,12 +154,16 @@ jobs:
 
 ### Severity-Based Due Dates
 
-| Input               | Description                               | Default | Required |
-| ------------------- | ----------------------------------------- | ------- | -------- |
-| `critical-due-days` | Days until due for critical issues        | `7`     | ❌       |
-| `high-due-days`     | Days until due for high severity issues   | `14`     | ❌       |
-| `medium-due-days`   | Days until due for medium severity issues | `60`    | ❌       |
-| `low-due-days`      | Days until due for low severity issues    | `120`    | ❌       |
+**⚠️ Important**: Due dates are calculated from when the Dependabot alert was
+**originally created**, not from when the action runs. This ensures existing
+vulnerabilities maintain proper urgency.
+
+| Input               | Description                                            | Default | Required |
+| ------------------- | ------------------------------------------------------ | ------- | -------- |
+| `critical-due-days` | Days from alert creation until due for critical issues | `7`     | ❌       |
+| `high-due-days`     | Days from alert creation until due for high severity   | `14`    | ❌       |
+| `medium-due-days`   | Days from alert creation until due for medium severity | `60`    | ❌       |
+| `low-due-days`      | Days from alert creation until due for low severity    | `120`   | ❌       |
 
 ### Filter Configuration
 
@@ -168,22 +174,22 @@ jobs:
 
 ### Behavior Configuration
 
-| Input                 | Description                                    | Default                                                                 | Required |
-| --------------------- | ---------------------------------------------- | ----------------------------------------------------------------------- | -------- |
-| `update-existing`     | Update existing Jira issues                   | `true`                                                                  | ❌       |
-| `auto-close-resolved` | Auto-close Jira issues when alerts are resolved | `true`                                                                  | ❌       |
-| `close-transition`    | Jira transition name to close issues          | `Done`                                                                  | ❌       |
-| `close-comment`       | Comment to add when auto-closing issues       | `This issue has been automatically closed because the associated Dependabot alert was resolved.` | ❌       |
-| `dry-run`             | Only log what would be done                   | `false`                                                                 | ❌       |
+| Input                 | Description                                     | Default                                                                                          | Required |
+| --------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------ | -------- |
+| `update-existing`     | Update existing Jira issues                     | `true`                                                                                           | ❌       |
+| `auto-close-resolved` | Auto-close Jira issues when alerts are resolved | `true`                                                                                           | ❌       |
+| `close-transition`    | Jira transition name to close issues            | `Done`                                                                                           | ❌       |
+| `close-comment`       | Comment to add when auto-closing issues         | `This issue has been automatically closed because the associated Dependabot alert was resolved.` | ❌       |
+| `dry-run`             | Only log what would be done                     | `false`                                                                                          | ❌       |
 
 ## 📤 Outputs
 
-| Output             | Description                           | Example                                                         |
-| ------------------ | ------------------------------------- | --------------------------------------------------------------- |
-| `issues-created`   | Number of new Jira issues created     | `3`                                                             |
-| `issues-updated`   | Number of existing issues updated     | `1`                                                             |
-| `issues-closed`    | Number of issues closed automatically | `2`                                                             |
-| `alerts-processed` | Total alerts processed                | `4`                                                             |
+| Output             | Description                           | Example                                                                        |
+| ------------------ | ------------------------------------- | ------------------------------------------------------------------------------ |
+| `issues-created`   | Number of new Jira issues created     | `3`                                                                            |
+| `issues-updated`   | Number of existing issues updated     | `1`                                                                            |
+| `issues-closed`    | Number of issues closed automatically | `2`                                                                            |
+| `alerts-processed` | Total alerts processed                | `4`                                                                            |
 | `summary`          | Summary of the operation              | `Created 3 new issues, updated 1 existing issue, and closed 2 resolved issues` |
 
 ## 🔧 Setup Requirements
@@ -281,7 +287,7 @@ properties of Object.prototype using a constructor payload.
 ---
 _This issue was automatically created by the Dependabot Jira Sync action._
 
-Due Date: Tomorrow (Critical severity = 1 day)
+Due Date: 2024-01-16 (Critical severity = 1 day from alert creation)
 Labels: dependabot, security
 Priority: High
 ```
@@ -303,12 +309,16 @@ Test the action without making changes:
 
 ## 🎯 Auto-Close Functionality
 
-The action can automatically close Jira issues when the corresponding Dependabot alerts are resolved in GitHub. This ensures your Jira board stays clean and up-to-date.
+The action can automatically close Jira issues when the corresponding Dependabot
+alerts are resolved in GitHub. This ensures your Jira board stays clean and
+up-to-date.
 
 ### How It Works
 
-1. **After processing new alerts**, the action searches for existing open Jira issues labeled with "dependabot"
-2. **Extracts alert IDs** from issue titles (e.g., "Dependabot Alert #42") or descriptions
+1. **After processing new alerts**, the action searches for existing open Jira
+   issues labeled with "dependabot"
+2. **Extracts alert IDs** from issue titles (e.g., "Dependabot Alert #42") or
+   descriptions
 3. **Checks GitHub** to verify the current status of each alert
 4. **Automatically closes** Jira issues where alerts are:
    - ✅ **Fixed** (patched by a dependency update)
