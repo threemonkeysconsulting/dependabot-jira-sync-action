@@ -56,7 +56,8 @@ jobs:
           # Option 2: GitHub App (Uncomment to use instead of PAT)
           github-app-id: ${{ secrets.DEPENDABOT_APP_ID }}
           github-app-private-key: ${{ secrets.DEPENDABOT_APP_PRIVATE_KEY }}
-          github-app-installation-id: ${{ secrets.DEPENDABOT_APP_INSTALLATION_ID }}
+          github-app-installation-id:
+            ${{ secrets.DEPENDABOT_APP_INSTALLATION_ID }}
 
           # Jira Configuration (Required)
           jira-url: 'https://threemonkeys.atlassian.net'
