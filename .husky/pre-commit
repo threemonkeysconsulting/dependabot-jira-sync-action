@@ -1,1 +1,17 @@
-npm run bundle && git add dist/
+#!/bin/sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+echo "🔨 Running pre-commit checks..."
+
+# Run bundle command - fail immediately if it fails
+echo "📦 Building and formatting..."
+if ! npm run bundle; then
+  echo "❌ Build failed! Commit aborted."
+  exit 1
+fi
+
+# Only add dist if bundle succeeded
+echo "✅ Adding updated dist files..."
+git add dist/
+
+echo "✅ Pre-commit checks passed!"

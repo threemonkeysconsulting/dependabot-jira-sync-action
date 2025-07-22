@@ -1,5 +1,7 @@
 name: 'Dependabot Jira Sync'
-description: 'Automatically sync Dependabot alerts to Jira issues with severity-based due dates and auto-close functionality.'
+description:
+  'Automatically sync Dependabot alerts to Jira issues with severity-based due
+  dates and auto-close functionality.'
 author: 'Three Monkeys Consulting'
 
 # Add your action's branding here. This will appear on the GitHub Marketplace.
