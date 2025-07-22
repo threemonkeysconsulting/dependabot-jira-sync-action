@@ -7,7 +7,8 @@ import { jest } from '@jest/globals'
 const mockCore = {
   info: jest.fn(),
   error: jest.fn(),
-  warning: jest.fn()
+  warning: jest.fn(),
+  debug: jest.fn()
 }
 
 // Mock axios
