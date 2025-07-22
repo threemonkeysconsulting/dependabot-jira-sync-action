@@ -1,0 +1,137 @@
+name: 'Dependabot Jira Sync'
+description:
+  'Automatically sync Dependabot security alerts to Jira issues with
+  severity-based due dates and auto-close resolved issues. Supports GitHub App
+  authentication (recommended) and Personal Access Tokens.'
+author: 'Three Monkeys Consulting'
+
+# Add your action's branding here. This will appear on the GitHub Marketplace.
+branding:
+  icon: shield
+  color: red
+
+# Define your inputs here.
+inputs:
+  # GitHub Authentication - Choose ONE method
+  github-token:
+    description:
+      'GitHub token for accessing repository and security alerts (PAT or
+      GITHUB_TOKEN)'
+    required: false
+    default: ${{ github.token }}
+
+  # GitHub App Authentication (Alternative to github-token)
+  github-app-id:
+    description:
+      'GitHub App ID for authentication (alternative to github-token)'
+    required: false
+  github-app-private-key:
+    description:
+      'GitHub App private key for authentication (alternative to github-token)'
+    required: false
+  github-app-installation-id:
+    description:
+      'GitHub App installation ID for authentication (alternative to
+      github-token)'
+    required: false
+
+  # Jira Configuration
+  jira-url:
+    description: 'Jira instance URL (e.g., https://company.atlassian.net)'
+    required: true
+  jira-username:
+    description: 'Jira username or email'
+    required: true
+  jira-api-token:
+    description: 'Jira API token'
+    required: true
+  jira-project-key:
+    description: 'Jira project key where issues will be created'
+    required: true
+  jira-issue-type:
+    description: 'Jira issue type for created issues'
+    required: false
+    default: 'Bug'
+  jira-priority:
+    description: 'Default Jira priority for issues'
+    required: false
+    default: 'Medium'
+  jira-labels:
+    description: 'Comma-separated list of labels to add to Jira issues'
+    required: false
+    default: 'dependabot,security'
+  jira-assignee:
+    description: 'Jira user to assign issues to'
+    required: false
+
+  # Severity Configuration
+  critical-due-days:
+    description: 'Days until due date for critical severity issues'
+    required: false
+    default: '1'
+  high-due-days:
+    description: 'Days until due date for high severity issues'
+    required: false
+    default: '7'
+  medium-due-days:
+    description: 'Days until due date for medium severity issues'
+    required: false
+    default: '30'
+  low-due-days:
+    description: 'Days until due date for low severity issues'
+    required: false
+    default: '90'
+
+  # Filter Configuration
+  severity-threshold:
+    description:
+      'Minimum severity level to process (low, medium, high, critical)'
+    required: false
+    default: 'medium'
+  exclude-dismissed:
+    description: 'Whether to exclude dismissed alerts'
+    required: false
+    default: 'true'
+
+  # Behavior Configuration
+  update-existing:
+    description: 'Whether to update existing Jira issues when alerts change'
+    required: false
+    default: 'true'
+  auto-close-resolved:
+    description:
+      'Automatically close Jira issues when Dependabot alerts are resolved'
+    required: false
+    default: 'true'
+  close-transition:
+    description:
+      'Jira transition name to close issues (e.g., "Done", "Resolved")'
+    required: false
+    default: 'Done'
+  close-comment:
+    description: 'Comment to add when auto-closing resolved issues'
+    required: false
+    default:
+      'This issue has been automatically closed because the associated
+      Dependabot alert was resolved.'
+  dry-run:
+    description: 'If true, only log what would be done without making changes'
+    required: false
+    default: 'false'
+
+# Define your outputs here.
+outputs:
+  issues-created:
+    description: 'Number of new Jira issues created'
+  issues-updated:
+    description: 'Number of existing Jira issues updated'
+  issues-closed:
+    description: 'Number of Jira issues closed due to resolved alerts'
+  alerts-processed:
+    description: 'Total number of Dependabot alerts processed'
+  summary:
+    description: 'Summary of the sync operation'
+
+runs:
+  using: node20
+  main: dist/index.js

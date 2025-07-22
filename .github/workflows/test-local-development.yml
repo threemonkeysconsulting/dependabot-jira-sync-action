@@ -1,0 +1,73 @@
+name: 'Test Local Development'
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Run in dry-run mode'
+        type: boolean
+        default: true
+
+jobs:
+  test-local:
+    runs-on: ubuntu-latest
+    name: Test Local Development Version
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Test Local Dependabot-Jira Sync Action
+        id: sync
+        uses: ./ # Use local development version
+        with:
+          # GitHub Authentication - Choose ONE method:
+
+          # Option 1: GitHub App (Recommended)
+          github-app-id: ${{ secrets.DEPENDABOT_APP_ID }}
+          github-app-private-key: ${{ secrets.DEPENDABOT_APP_PRIVATE_KEY }}
+          github-app-installation-id:
+            ${{ secrets.DEPENDABOT_APP_INSTALLATION_ID }}
+
+          # Option 2: Personal Access Token (Alternative)
+          # github-token: ${{ secrets.DEPENDABOT_PAT }}
+
+          # Jira Configuration (Required)
+          jira-url: ${{ secrets.JIRA_URL || vars.JIRA_URL }}
+          jira-username: ${{ secrets.JIRA_USERNAME || vars.JIRA_USERNAME }}
+          jira-api-token: ${{ secrets.JIRA_API_TOKEN }}
+          jira-project-key:
+            ${{ secrets.JIRA_PROJECT_KEY || vars.JIRA_PROJECT_KEY }}
+
+          # Severity-based due dates (Optional)
+          critical-due-days: '1'
+          high-due-days: '7'
+          medium-due-days: '30'
+          low-due-days: '90'
+
+          # Filter Configuration (Optional)
+          severity-threshold: 'medium'
+          exclude-dismissed: 'true'
+
+          # Behavior Configuration (Optional)
+          update-existing: 'true'
+          auto-close-resolved: 'true'
+          close-transition: 'Done'
+          dry-run: ${{ inputs.dry-run }}
+
+      - name: Print Test Results
+        if: always()
+        run: |
+          echo "## 🧪 Local Development Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version Tested:** Local development version" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dry Run:** ${{ inputs.dry-run }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Issues Created:** ${{ steps.sync.outputs.issues-created || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Issues Updated:** ${{ steps.sync.outputs.issues-updated || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Issues Closed:** ${{ steps.sync.outputs.issues-closed || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Alerts Processed:** ${{ steps.sync.outputs.alerts-processed || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Summary:** ${{ steps.sync.outputs.summary || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+
+          # Also log to console
+          echo "✅ Local development test completed!"
+          echo "Commit: ${{ github.sha }}"
+          echo "Results: ${{ steps.sync.outputs.summary }}"

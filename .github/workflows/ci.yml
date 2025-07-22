@@ -1,0 +1,179 @@
+name: Continuous Integration
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  security-events: read # Required for Dependabot alerts
+
+jobs:
+  test-javascript:
+    name: JavaScript Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        id: setup-node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install Dependencies
+        id: npm-ci
+        run: npm ci
+
+      - name: Check Format
+        id: npm-format-check
+        run: npm run format:check
+
+      - name: Lint
+        id: npm-lint
+        run: npm run lint
+
+      - name: Test
+        id: npm-ci-test
+        run: npm run ci-test
+
+      - name: Generate Coverage
+        id: npm-coverage
+        run: npm run coverage
+
+      - name: Upload Coverage Badge
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-badge
+          path: badges/coverage.svg
+
+  test-action-dry-run:
+    name: Test Action (Dry Run)
+    runs-on: ubuntu-latest
+    needs: test-javascript
+
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v4
+
+      - name: Test Local Action - Dry Run
+        id: test-action-dry-run
+        uses: ./
+        with:
+          # Jira Configuration (using fake values for testing)
+          jira-url: 'https://test.atlassian.net'
+          jira-username: 'test@example.com'
+          jira-api-token: 'fake-token-for-testing'
+          jira-project-key: 'TEST'
+
+          # Severity Configuration
+          critical-due-days: '1'
+          high-due-days: '7'
+          medium-due-days: '30'
+          low-due-days: '90'
+
+          # Filter Configuration
+          severity-threshold: 'medium'
+          exclude-dismissed: 'true'
+
+          # Behavior Configuration - IMPORTANT: Dry run mode
+          update-existing: 'true'
+          dry-run: 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true # Don't fail if no alerts found
+
+      - name: Print Action Results
+        id: print-results
+        run: |
+          echo "## Action Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "- **Issues Created:** ${{ steps.test-action-dry-run.outputs.issues-created || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Issues Updated:** ${{ steps.test-action-dry-run.outputs.issues-updated || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Alerts Processed:** ${{ steps.test-action-dry-run.outputs.alerts-processed || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Summary:** ${{ steps.test-action-dry-run.outputs.summary || 'No summary available' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_Note: This test runs in dry-run mode, so no actual Jira issues are created._" >> $GITHUB_STEP_SUMMARY
+
+  test-action-validation:
+    name: Test Action Input Validation
+    runs-on: ubuntu-latest
+    needs: test-javascript
+
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v4
+
+      - name: Test Missing Required Input
+        id: test-missing-input
+        uses: ./
+        with:
+          # Missing required jira-url input to test validation
+          jira-username: 'test@example.com'
+          jira-api-token: 'fake-token'
+          jira-project-key: 'TEST'
+          dry-run: 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Verify Error Handling
+        run: |
+          if [ "${{ steps.test-missing-input.outcome }}" == "failure" ]; then
+            echo "✅ Action correctly failed with missing required input"
+            echo "## Input Validation Test: PASSED" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Action should have failed with missing required input"
+            echo "## Input Validation Test: FAILED" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+  check-dist:
+    name: Check dist/
+    runs-on: ubuntu-latest
+    needs: test-javascript
+
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        id: setup-node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install Dependencies
+        id: npm-ci
+        run: npm ci
+
+      - name: Build dist/ Directory
+        id: npm-build
+        run: npm run package
+
+      - name: Compare the expected and actual dist/ directories
+        id: diff
+        run: |
+          if [ "$(git diff --ignore-space-at-eol dist/ | wc -l)" -gt "0" ]; then
+            echo "Detected uncommitted changes after build.  See status below:"
+            git diff
+            exit 1
+          fi
+
+      - name: Upload dist artifact
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
