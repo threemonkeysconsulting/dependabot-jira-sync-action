@@ -224,7 +224,7 @@ export async function findOpenDependabotIssues(jiraClient, projectKey) {
   core.info(`Searching for open Dependabot issues in project ${projectKey}`)
 
   try {
-    const response = await jiraClient.get('/rest/api/3/search', {
+    const response = await jiraClient.get('/search', {
       params: {
         jql,
         fields: 'key,summary,description,status',
@@ -291,7 +291,7 @@ export async function closeJiraIssue(
   try {
     // First, get available transitions for the issue
     const transitionsResponse = await jiraClient.get(
-      `/rest/api/3/issue/${issueKey}/transitions`
+      `/issue/${issueKey}/transitions`
     )
     const availableTransitions = transitionsResponse.data.transitions || []
 
@@ -309,7 +309,7 @@ export async function closeJiraIssue(
 
     // Add comment first
     if (comment) {
-      await jiraClient.post(`/rest/api/3/issue/${issueKey}/comment`, {
+      await jiraClient.post(`/issue/${issueKey}/comment`, {
         body: {
           type: 'doc',
           version: 1,
@@ -329,7 +329,7 @@ export async function closeJiraIssue(
     }
 
     // Perform the transition
-    await jiraClient.post(`/rest/api/3/issue/${issueKey}/transitions`, {
+    await jiraClient.post(`/issue/${issueKey}/transitions`, {
       transition: {
         id: targetTransition.id
       }

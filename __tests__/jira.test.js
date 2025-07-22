@@ -423,7 +423,7 @@ describe('Jira API Functions', () => {
 
       const result = await findOpenDependabotIssues(mockAxiosInstance, 'SEC')
 
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/rest/api/3/search', {
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/search', {
         params: {
           jql: 'project = "SEC" AND labels = "dependabot" AND status != "Done" AND status != "Resolved" AND status != "Closed"',
           fields: 'key,summary,description,status',
@@ -556,12 +556,12 @@ describe('Jira API Functions', () => {
 
       // Should get available transitions
       expect(mockAxiosInstance.get).toHaveBeenCalledWith(
-        '/rest/api/3/issue/SEC-123/transitions'
+        '/issue/SEC-123/transitions'
       )
 
       // Should add comment
       expect(mockAxiosInstance.post).toHaveBeenCalledWith(
-        '/rest/api/3/issue/SEC-123/comment',
+        '/issue/SEC-123/comment',
         {
           body: {
             type: 'doc',
@@ -583,7 +583,7 @@ describe('Jira API Functions', () => {
 
       // Should perform transition
       expect(mockAxiosInstance.post).toHaveBeenCalledWith(
-        '/rest/api/3/issue/SEC-123/transitions',
+        '/issue/SEC-123/transitions',
         {
           transition: {
             id: '31'
@@ -627,7 +627,7 @@ describe('Jira API Functions', () => {
 
       // Should still find the "Done" transition
       expect(mockAxiosInstance.post).toHaveBeenCalledWith(
-        '/rest/api/3/issue/SEC-123/transitions',
+        '/issue/SEC-123/transitions',
         {
           transition: {
             id: '31'
@@ -685,7 +685,7 @@ describe('Jira API Functions', () => {
       // Should only call transition, not comment API
       expect(mockAxiosInstance.post).toHaveBeenCalledTimes(1)
       expect(mockAxiosInstance.post).toHaveBeenCalledWith(
-        '/rest/api/3/issue/SEC-123/transitions',
+        '/issue/SEC-123/transitions',
         {
           transition: {
             id: '31'
