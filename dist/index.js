@@ -57796,6 +57796,28 @@ const {
 } = axios;
 
 /**
+ * Sanitize input for use in JQL queries to prevent injection
+ * @param {string} input - User input to sanitize
+ * @returns {string} Sanitized input safe for JQL
+ */
+function sanitizeForJQL(input) {
+  if (!input || typeof input !== 'string') {
+    return ''
+  }
+  // Remove or escape characters that could be used for JQL injection
+  return input.replace(/['"\\]/g, '').trim()
+}
+
+/**
+ * Validate project key format (alphanumeric + underscore/dash only)
+ * @param {string} projectKey - Project key to validate
+ * @returns {boolean} True if valid
+ */
+function validateProjectKey(projectKey) {
+  return /^[A-Z0-9_-]+$/i.test(projectKey)
+}
+
+/**
  * Create a Jira API client
  * @param {string} jiraUrl - Jira instance URL
  * @param {string} username - Jira username
@@ -57803,6 +57825,18 @@ const {
  * @returns {Object} Axios instance configured for Jira API
  */
 function createJiraClient(jiraUrl, username, apiToken) {
+  // Validate inputs
+  if (!jiraUrl || !username || !apiToken) {
+    throw new Error('Jira URL, username, and API token are required')
+  }
+
+  // Validate URL format
+  try {
+    new URL(jiraUrl);
+  } catch {
+    throw new Error('Invalid Jira URL format')
+  }
+
   const client = axios.create({
     baseURL: `${jiraUrl}/rest/api/2`,
     auth: {
@@ -57862,8 +57896,20 @@ function calculateDueDate(severity, dueDaysConfig, createdAt) {
  * @returns {Promise<Object|null>} Existing issue or null
  */
 async function findExistingIssue(jiraClient, projectKey, alertId) {
+  // Validate inputs
+  if (!validateProjectKey(projectKey)) {
+    throw new Error(`Invalid project key format: ${projectKey}`)
+  }
+
+  const sanitizedProjectKey = sanitizeForJQL(projectKey);
+  const sanitizedAlertId = parseInt(alertId, 10);
+
+  if (isNaN(sanitizedAlertId)) {
+    throw new Error(`Invalid alert ID: ${alertId}`)
+  }
+
   try {
-    const jql = `project = ${projectKey} AND summary ~ "Dependabot Alert #${alertId}"`;
+    const jql = `project = "${sanitizedProjectKey}" AND summary ~ "Dependabot Alert #${sanitizedAlertId}"`;
 
     const response = await jiraClient.get('/search', {
       params: {
@@ -58013,7 +58059,13 @@ ${alert.dismissedComment ? `*Dismissed Comment:* ${alert.dismissedComment}` : ''
  * @returns {Promise<Array>} Array of open Dependabot issues
  */
 async function findOpenDependabotIssues(jiraClient, projectKey) {
-  const jql = `project = "${projectKey}" AND labels = "dependabot" AND status != "Done" AND status != "Resolved" AND status != "Closed"`;
+  // Validate inputs
+  if (!validateProjectKey(projectKey)) {
+    throw new Error(`Invalid project key format: ${projectKey}`)
+  }
+
+  const sanitizedProjectKey = sanitizeForJQL(projectKey);
+  const jql = `project = "${sanitizedProjectKey}" AND labels = "dependabot" AND resolution IS EMPTY`;
 
   coreExports.info(`Searching for open Dependabot issues in project ${projectKey}`);
 
@@ -58145,6 +58197,46 @@ function getConfig() {
   const jiraApiToken = coreExports.getInput('jira-api-token', { required: true });
   const jiraProjectKey = coreExports.getInput('jira-project-key', { required: true });
 
+  // Validate URL format
+  try {
+    new URL(jiraUrl);
+  } catch {
+    throw new Error(`Invalid Jira URL format: ${jiraUrl}`)
+  }
+
+  // Validate project key format (alphanumeric + underscore/dash only)
+  if (!/^[A-Z0-9_-]+$/i.test(jiraProjectKey)) {
+    throw new Error(
+      `Invalid Jira project key format: ${jiraProjectKey}. Must be alphanumeric with underscores or dashes only.`
+    )
+  }
+
+  // Validate severity threshold
+  const severityThreshold = coreExports.getInput('severity-threshold') || 'medium';
+  const validSeverities = ['low', 'medium', 'high', 'critical'];
+  if (!validSeverities.includes(severityThreshold.toLowerCase())) {
+    throw new Error(
+      `Invalid severity threshold: ${severityThreshold}. Must be one of: ${validSeverities.join(', ')}`
+    )
+  }
+
+  // Validate due days (must be positive integers)
+  const dueDays = {
+    critical: parseInt(coreExports.getInput('critical-due-days') || '1', 10),
+    high: parseInt(coreExports.getInput('high-due-days') || '7', 10),
+    medium: parseInt(coreExports.getInput('medium-due-days') || '30', 10),
+    low: parseInt(coreExports.getInput('low-due-days') || '90', 10)
+  };
+
+  Object.entries(dueDays).forEach(([severity, days]) => {
+    if (isNaN(days) || days < 1 || days > 3650) {
+      // Max 10 years
+      throw new Error(
+        `Invalid ${severity}-due-days: ${days}. Must be a positive integer between 1 and 3650.`
+      )
+    }
+  });
+
   return {
     jira: {
       url: jiraUrl,
@@ -58155,15 +58247,10 @@ function getConfig() {
       priority: coreExports.getInput('jira-priority') || 'Medium',
       labels: coreExports.getInput('jira-labels') || 'dependabot,security',
       assignee: coreExports.getInput('jira-assignee') || null,
-      dueDays: {
-        critical: parseInt(coreExports.getInput('critical-due-days') || '7', 10),
-        high: parseInt(coreExports.getInput('high-due-days') || '14', 10),
-        medium: parseInt(coreExports.getInput('medium-due-days') || '60', 10),
-        low: parseInt(coreExports.getInput('low-due-days') || '90', 10)
-      }
+      dueDays
     },
     filters: {
-      severityThreshold: coreExports.getInput('severity-threshold') || 'medium',
+      severityThreshold: severityThreshold.toLowerCase(),
       excludeDismissed: coreExports.getBooleanInput('exclude-dismissed') !== false
     },
     behavior: {

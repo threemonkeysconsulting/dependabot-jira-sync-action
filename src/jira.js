@@ -2,6 +2,28 @@ import * as core from '@actions/core'
 import axios from 'axios'
 
 /**
+ * Sanitize input for use in JQL queries to prevent injection
+ * @param {string} input - User input to sanitize
+ * @returns {string} Sanitized input safe for JQL
+ */
+function sanitizeForJQL(input) {
+  if (!input || typeof input !== 'string') {
+    return ''
+  }
+  // Remove or escape characters that could be used for JQL injection
+  return input.replace(/['"\\]/g, '').trim()
+}
+
+/**
+ * Validate project key format (alphanumeric + underscore/dash only)
+ * @param {string} projectKey - Project key to validate
+ * @returns {boolean} True if valid
+ */
+function validateProjectKey(projectKey) {
+  return /^[A-Z0-9_-]+$/i.test(projectKey)
+}
+
+/**
  * Create a Jira API client
  * @param {string} jiraUrl - Jira instance URL
  * @param {string} username - Jira username
@@ -9,6 +31,18 @@ import axios from 'axios'
  * @returns {Object} Axios instance configured for Jira API
  */
 export function createJiraClient(jiraUrl, username, apiToken) {
+  // Validate inputs
+  if (!jiraUrl || !username || !apiToken) {
+    throw new Error('Jira URL, username, and API token are required')
+  }
+
+  // Validate URL format
+  try {
+    new URL(jiraUrl)
+  } catch {
+    throw new Error('Invalid Jira URL format')
+  }
+
   const client = axios.create({
     baseURL: `${jiraUrl}/rest/api/2`,
     auth: {
@@ -68,8 +102,20 @@ export function calculateDueDate(severity, dueDaysConfig, createdAt) {
  * @returns {Promise<Object|null>} Existing issue or null
  */
 export async function findExistingIssue(jiraClient, projectKey, alertId) {
+  // Validate inputs
+  if (!validateProjectKey(projectKey)) {
+    throw new Error(`Invalid project key format: ${projectKey}`)
+  }
+
+  const sanitizedProjectKey = sanitizeForJQL(projectKey)
+  const sanitizedAlertId = parseInt(alertId, 10)
+
+  if (isNaN(sanitizedAlertId)) {
+    throw new Error(`Invalid alert ID: ${alertId}`)
+  }
+
   try {
-    const jql = `project = ${projectKey} AND summary ~ "Dependabot Alert #${alertId}"`
+    const jql = `project = "${sanitizedProjectKey}" AND summary ~ "Dependabot Alert #${sanitizedAlertId}"`
 
     const response = await jiraClient.get('/search', {
       params: {
@@ -219,7 +265,13 @@ ${alert.dismissedComment ? `*Dismissed Comment:* ${alert.dismissedComment}` : ''
  * @returns {Promise<Array>} Array of open Dependabot issues
  */
 export async function findOpenDependabotIssues(jiraClient, projectKey) {
-  const jql = `project = "${projectKey}" AND labels = "dependabot" AND status != "Done" AND status != "Resolved" AND status != "Closed"`
+  // Validate inputs
+  if (!validateProjectKey(projectKey)) {
+    throw new Error(`Invalid project key format: ${projectKey}`)
+  }
+
+  const sanitizedProjectKey = sanitizeForJQL(projectKey)
+  const jql = `project = "${sanitizedProjectKey}" AND labels = "dependabot" AND resolution IS EMPTY`
 
   core.info(`Searching for open Dependabot issues in project ${projectKey}`)
 

@@ -25,6 +25,46 @@ function getConfig() {
   const jiraApiToken = core.getInput('jira-api-token', { required: true })
   const jiraProjectKey = core.getInput('jira-project-key', { required: true })
 
+  // Validate URL format
+  try {
+    new URL(jiraUrl)
+  } catch {
+    throw new Error(`Invalid Jira URL format: ${jiraUrl}`)
+  }
+
+  // Validate project key format (alphanumeric + underscore/dash only)
+  if (!/^[A-Z0-9_-]+$/i.test(jiraProjectKey)) {
+    throw new Error(
+      `Invalid Jira project key format: ${jiraProjectKey}. Must be alphanumeric with underscores or dashes only.`
+    )
+  }
+
+  // Validate severity threshold
+  const severityThreshold = core.getInput('severity-threshold') || 'medium'
+  const validSeverities = ['low', 'medium', 'high', 'critical']
+  if (!validSeverities.includes(severityThreshold.toLowerCase())) {
+    throw new Error(
+      `Invalid severity threshold: ${severityThreshold}. Must be one of: ${validSeverities.join(', ')}`
+    )
+  }
+
+  // Validate due days (must be positive integers)
+  const dueDays = {
+    critical: parseInt(core.getInput('critical-due-days') || '1', 10),
+    high: parseInt(core.getInput('high-due-days') || '7', 10),
+    medium: parseInt(core.getInput('medium-due-days') || '30', 10),
+    low: parseInt(core.getInput('low-due-days') || '90', 10)
+  }
+
+  Object.entries(dueDays).forEach(([severity, days]) => {
+    if (isNaN(days) || days < 1 || days > 3650) {
+      // Max 10 years
+      throw new Error(
+        `Invalid ${severity}-due-days: ${days}. Must be a positive integer between 1 and 3650.`
+      )
+    }
+  })
+
   return {
     jira: {
       url: jiraUrl,
@@ -35,15 +75,10 @@ function getConfig() {
       priority: core.getInput('jira-priority') || 'Medium',
       labels: core.getInput('jira-labels') || 'dependabot,security',
       assignee: core.getInput('jira-assignee') || null,
-      dueDays: {
-        critical: parseInt(core.getInput('critical-due-days') || '7', 10),
-        high: parseInt(core.getInput('high-due-days') || '14', 10),
-        medium: parseInt(core.getInput('medium-due-days') || '60', 10),
-        low: parseInt(core.getInput('low-due-days') || '90', 10)
-      }
+      dueDays
     },
     filters: {
-      severityThreshold: core.getInput('severity-threshold') || 'medium',
+      severityThreshold: severityThreshold.toLowerCase(),
       excludeDismissed: core.getBooleanInput('exclude-dismissed') !== false
     },
     behavior: {

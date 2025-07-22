@@ -158,19 +158,15 @@ describe('Jira API Functions', () => {
   })
 
   describe('findExistingIssue', () => {
-    beforeEach(() => {
-      mockAxiosInstance.get.mockClear()
-    })
-
     it('should find existing issue', async () => {
       const mockResponse = {
         data: {
           issues: [
             {
               key: 'SEC-123',
-              summary: 'Dependabot Alert #42',
+              summary: 'Dependabot Alert #42: Test vulnerability',
               status: { name: 'Open' },
-              updated: '2023-01-15T10:00:00Z'
+              updated: '2023-01-01T00:00:00Z'
             }
           ]
         }
@@ -182,7 +178,7 @@ describe('Jira API Functions', () => {
 
       expect(mockAxiosInstance.get).toHaveBeenCalledWith('/search', {
         params: {
-          jql: 'project = SEC AND summary ~ "Dependabot Alert #42"',
+          jql: 'project = "SEC" AND summary ~ "Dependabot Alert #42"',
           fields: 'key,summary,status,updated'
         }
       })
@@ -190,10 +186,20 @@ describe('Jira API Functions', () => {
       expect(result).toEqual(mockResponse.data.issues[0])
     })
 
+    it('should reject invalid project keys', async () => {
+      await expect(
+        findExistingIssue(mockAxiosInstance, 'SEC"; DROP TABLE alerts; --', 42)
+      ).rejects.toThrow('Invalid project key format')
+    })
+
+    it('should reject invalid alert IDs', async () => {
+      await expect(
+        findExistingIssue(mockAxiosInstance, 'SEC', 'invalid')
+      ).rejects.toThrow('Invalid alert ID')
+    })
+
     it('should return null if no issues found', async () => {
-      mockAxiosInstance.get.mockResolvedValue({
-        data: { issues: [] }
-      })
+      mockAxiosInstance.get.mockResolvedValue({ data: { issues: [] } })
 
       const result = await findExistingIssue(mockAxiosInstance, 'SEC', 42)
 
@@ -201,13 +207,14 @@ describe('Jira API Functions', () => {
     })
 
     it('should handle search errors gracefully', async () => {
-      mockAxiosInstance.get.mockRejectedValue(new Error('Jira API error'))
+      const searchError = new Error('Search failed')
+      mockAxiosInstance.get.mockRejectedValue(searchError)
 
       const result = await findExistingIssue(mockAxiosInstance, 'SEC', 42)
 
       expect(result).toBeNull()
       expect(mockCore.warning).toHaveBeenCalledWith(
-        'Failed to search for existing issue: Jira API error'
+        'Failed to search for existing issue: Search failed'
       )
     })
   })
@@ -426,7 +433,7 @@ describe('Jira API Functions', () => {
 
       expect(mockAxiosInstance.get).toHaveBeenCalledWith('/search', {
         params: {
-          jql: 'project = "SEC" AND labels = "dependabot" AND status != "Done" AND status != "Resolved" AND status != "Closed"',
+          jql: 'project = "SEC" AND labels = "dependabot" AND resolution IS EMPTY',
           fields: 'key,summary,description,status',
           maxResults: 100
         }
@@ -438,6 +445,12 @@ describe('Jira API Functions', () => {
       expect(mockCore.info).toHaveBeenCalledWith(
         'Found 2 open Dependabot issues'
       )
+    })
+
+    it('should reject invalid project keys', async () => {
+      await expect(
+        findOpenDependabotIssues(mockAxiosInstance, 'SEC"; OR 1=1; --')
+      ).rejects.toThrow('Invalid project key format')
     })
 
     it('should handle empty search results', async () => {

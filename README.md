@@ -373,6 +373,44 @@ The action provides detailed logging:
 ✅ Dependabot Jira Sync completed successfully
 ```
 
+## 🚨 Troubleshooting
+
+### Common Issues
+
+**Permission Errors:**
+
+- Ensure GitHub App/PAT has `security_events` scope
+- Verify Jira user has permission to create issues in the target project
+- Check that the Jira project key exists and is accessible
+
+**Rate Limiting:**
+
+- Jira Cloud: 20 requests/second, 5000 requests/hour per IP
+- GitHub: 5000 requests/hour for authenticated requests
+- Consider reducing sync frequency for large repositories
+
+**Authentication Failures:**
+
+- GitHub App: Verify app is installed on the repository
+- Jira: Ensure API token belongs to the specified username
+- Test credentials with `dry-run: true` first
+
+### Performance Considerations
+
+For large repositories (>100 alerts):
+
+- Use specific `severity-threshold` to reduce processing
+- Consider running less frequently (daily vs. hourly)
+- Enable `exclude-dismissed: true` to skip resolved issues
+
+### Debug Mode
+
+Enable verbose logging by setting the repository secret:
+
+```
+ACTIONS_STEP_DEBUG = true
+```
+
 ## 🛠️ Development
 
 ### Local Development

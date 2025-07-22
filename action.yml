@@ -68,19 +68,19 @@ inputs:
   critical-due-days:
     description: 'Days until due date for critical severity issues'
     required: false
-    default: '7'
+    default: '1'
   high-due-days:
     description: 'Days until due date for high severity issues'
     required: false
-    default: '14'
+    default: '7'
   medium-due-days:
     description: 'Days until due date for medium severity issues'
     required: false
-    default: '60'
+    default: '30'
   low-due-days:
     description: 'Days until due date for low severity issues'
     required: false
-    default: '120'
+    default: '90'
 
   # Filter Configuration
   severity-threshold:
