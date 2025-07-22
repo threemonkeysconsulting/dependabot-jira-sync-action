@@ -322,21 +322,7 @@ export async function closeJiraIssue(
     // Add comment first
     if (comment) {
       await jiraClient.post(`/issue/${issueKey}/comment`, {
-        body: {
-          type: 'doc',
-          version: 1,
-          content: [
-            {
-              type: 'paragraph',
-              content: [
-                {
-                  type: 'text',
-                  text: comment
-                }
-              ]
-            }
-          ]
-        }
+        body: comment
       })
     }
 

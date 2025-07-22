@@ -58044,14 +58044,16 @@ async function findOpenDependabotIssues(jiraClient, projectKey) {
  */
 function extractAlertIdFromIssue(issue) {
   // Debug: Log the issue structure
-  coreExports.info(`Debug: Issue ${issue.key} structure: ${JSON.stringify(issue, null, 2)}`);
-  
+  coreExports.info(
+    `Debug: Issue ${issue.key} structure: ${JSON.stringify(issue, null, 2)}`
+  );
+
   // Jira API often nests fields under 'fields' object
   const summary = issue.summary || issue.fields?.summary;
   const description = issue.description || issue.fields?.description;
-  
+
   coreExports.info(`Debug: Extracted summary: "${summary}"`);
-  
+
   // Try to extract from summary first: "Dependabot Alert #123: ..."
   const summaryMatch = summary?.match(/Dependabot Alert #(\d+)/);
   if (summaryMatch) {
@@ -58114,21 +58116,7 @@ async function closeJiraIssue(
     // Add comment first
     if (comment) {
       await jiraClient.post(`/issue/${issueKey}/comment`, {
-        body: {
-          type: 'doc',
-          version: 1,
-          content: [
-            {
-              type: 'paragraph',
-              content: [
-                {
-                  type: 'text',
-                  text: comment
-                }
-              ]
-            }
-          ]
-        }
+        body: comment
       });
     }
 

@@ -563,21 +563,7 @@ describe('Jira API Functions', () => {
       expect(mockAxiosInstance.post).toHaveBeenCalledWith(
         '/issue/SEC-123/comment',
         {
-          body: {
-            type: 'doc',
-            version: 1,
-            content: [
-              {
-                type: 'paragraph',
-                content: [
-                  {
-                    type: 'text',
-                    text: 'Alert was resolved in GitHub'
-                  }
-                ]
-              }
-            ]
-          }
+          body: 'Alert was resolved in GitHub'
         }
       )
 
