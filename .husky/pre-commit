@@ -1,1 +1,1 @@
-npm run bundle && git add dist/
+npm run bundle
