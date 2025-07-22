@@ -249,14 +249,24 @@ export async function findOpenDependabotIssues(jiraClient, projectKey) {
  * @returns {string|null} Alert ID or null if not found
  */
 export function extractAlertIdFromIssue(issue) {
+  // Debug: Log the issue structure
+  core.info(`Debug: Issue ${issue.key} structure: ${JSON.stringify(issue, null, 2)}`)
+  
+  // Jira API often nests fields under 'fields' object
+  const summary = issue.summary || issue.fields?.summary
+  const description = issue.description || issue.fields?.description
+  
+  core.info(`Debug: Extracted summary: "${summary}"`)
+  
   // Try to extract from summary first: "Dependabot Alert #123: ..."
-  const summaryMatch = issue.summary?.match(/Dependabot Alert #(\d+)/)
+  const summaryMatch = summary?.match(/Dependabot Alert #(\d+)/)
   if (summaryMatch) {
+    core.info(`Debug: Successfully extracted alert ID: ${summaryMatch[1]}`)
     return summaryMatch[1]
   }
 
   // Try to extract from description: "Alert ID: 123"
-  const descriptionMatch = issue.description?.match(/Alert ID:\s*(\d+)/)
+  const descriptionMatch = description?.match(/Alert ID:\s*(\d+)/)
   if (descriptionMatch) {
     return descriptionMatch[1]
   }
