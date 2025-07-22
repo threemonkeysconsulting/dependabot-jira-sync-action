@@ -58044,7 +58044,7 @@ async function findOpenDependabotIssues(jiraClient, projectKey) {
  */
 function extractAlertIdFromIssue(issue) {
   // Debug: Log the issue structure
-  coreExports.info(
+  coreExports.debug(
     `Debug: Issue ${issue.key} structure: ${JSON.stringify(issue, null, 2)}`
   );
 
@@ -58052,12 +58052,12 @@ function extractAlertIdFromIssue(issue) {
   const summary = issue.summary || issue.fields?.summary;
   const description = issue.description || issue.fields?.description;
 
-  coreExports.info(`Debug: Extracted summary: "${summary}"`);
+  coreExports.info(`Info: Extracted summary: "${summary}"`);
 
   // Try to extract from summary first: "Dependabot Alert #123: ..."
   const summaryMatch = summary?.match(/Dependabot Alert #(\d+)/);
   if (summaryMatch) {
-    coreExports.info(`Debug: Successfully extracted alert ID: ${summaryMatch[1]}`);
+    coreExports.info(`Info: Successfully extracted alert ID: ${summaryMatch[1]}`);
     return summaryMatch[1]
   }
 
