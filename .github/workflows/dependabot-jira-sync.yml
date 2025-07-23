@@ -45,7 +45,7 @@ jobs:
 
       - name: Sync Dependabot Alerts to Jira
         id: sync
-        uses: threemonkeysconsulting/dependabot-jira-sync-action@v1 # Use published stable version
+        uses: threemonkeysconsulting/dependabot-jira-sync-action@v1.0.0 # Use published stable version
         with:
           # GitHub Authentication - Choose ONE method:
 
