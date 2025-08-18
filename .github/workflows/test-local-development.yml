@@ -14,7 +14,7 @@ jobs:
     name: Test Local Development Version
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Test Local Dependabot-Jira Sync Action
         id: sync
