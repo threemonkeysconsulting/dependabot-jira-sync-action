@@ -1,0 +1,55 @@
+name: Update dist/ for Dependabot PRs
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  update-dist:
+    name: Update dist/ Directory
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build dist/ Directory
+        run: npm run bundle
+
+      - name: Check for changes
+        id: verify-changed-files
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "Detected changes in dist/ directory"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No changes detected in dist/ directory"
+          fi
+
+      - name: Commit changes
+        if: steps.verify-changed-files.outputs.changed == 'true'
+        run: |
+          git config --global user.name 'dependabot[bot]'
+          git config --global user.email 'support@github.com'
+          git add dist/
+          git commit -m "chore: update dist/ directory for dependency changes
+
+          Co-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>"
+          git push
