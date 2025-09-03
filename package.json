@@ -43,7 +43,7 @@
   "license": "MIT",
   "dependencies": {
     "@actions/core": "^1.11.1",
-    "@actions/github": "^6.0.0",
+    "@actions/github": "^6.0.1",
     "axios": "^1.7.9",
     "jsonwebtoken": "^9.0.2"
   },
