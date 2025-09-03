@@ -12,6 +12,7 @@ jobs:
     name: Update dist/ Directory
     runs-on: ubuntu-latest
     if: github.actor == 'dependabot[bot]'
+    continue-on-error: true
 
     steps:
       - name: Checkout
