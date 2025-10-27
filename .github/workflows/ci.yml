@@ -50,7 +50,7 @@ jobs:
         run: npm run coverage
 
       - name: Upload Coverage Badge
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: coverage-badge
           path: badges/coverage.svg
@@ -173,7 +173,7 @@ jobs:
 
       - name: Upload dist artifact
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: dist
           path: dist/
