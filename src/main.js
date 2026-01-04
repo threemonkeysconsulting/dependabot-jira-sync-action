@@ -136,6 +136,7 @@ export async function run() {
 
     let issuesCreated = 0
     let issuesUpdated = 0
+    let processingErrors = 0
     const processedAlerts = []
 
     // Process each alert
@@ -185,9 +186,16 @@ export async function run() {
           }
         }
       } catch (error) {
+        processingErrors++
         core.error(`Failed to process alert #${alert.number}: ${error.message}`)
-        // Continue processing other alerts
+        // Continue processing other alerts but mark the run as failed later
       }
+    }
+
+    if (processingErrors > 0) {
+      throw new Error(
+        `Failed to process ${processingErrors} alert(s); see logs for details`
+      )
     }
 
     // Auto-close resolved issues if enabled

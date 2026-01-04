@@ -133,10 +133,14 @@ export async function findExistingIssue(jiraClient, projectKey, alertId) {
       }
     })
 
-    return response.data.issues.length > 0 ? response.data.issues[0] : null
+    core.debug(
+      `Search JQL: ${jql}, found ${response.data?.issues?.length || 0} issues`
+    )
+    return response.data?.issues?.length > 0 ? response.data.issues[0] : null
   } catch (error) {
-    core.warning(`Failed to search for existing issue: ${error.message}`)
-    return null
+    // Surface API errors so the workflow fails rather than silently skipping
+    core.error(`Failed to search for existing issue: ${error.message}`)
+    throw error
   }
 }
 
@@ -234,7 +238,7 @@ export async function createJiraIssue(
           },
           {
             type: 'text',
-            text: alert.vulnerableVersionRange
+            text: alert.vulnerableVersionRange || 'Not available'
           }
         ]
       },
@@ -248,7 +252,7 @@ export async function createJiraIssue(
           },
           {
             type: 'text',
-            text: alert.firstPatchedVersion
+            text: alert.firstPatchedVersion || 'Not available'
           }
         ]
       },
@@ -395,9 +399,13 @@ export async function createJiraIssue(
       summary: `Dependabot Alert #${alert.id}: ${alert.title}`,
       description,
       issuetype: { name: issueType },
-      priority: { name: priority },
       duedate: dueDate
     }
+  }
+
+  // Priority is optional - only include if provided (some next-gen projects don't support it)
+  if (priority) {
+    issueData.fields.priority = { name: priority }
   }
 
   // Add labels if provided
@@ -416,6 +424,9 @@ export async function createJiraIssue(
   }
 
   try {
+    core.debug(
+      `Creating Jira issue with payload: ${JSON.stringify(issueData, null, 2)}`
+    )
     const response = await jiraClient.post('/issue', issueData)
     core.info(`Created Jira issue: ${response.data.key}`)
     return response.data
@@ -437,163 +448,182 @@ export async function updateJiraIssue(
   jiraClient,
   issueKey,
   alert,
-  dryRun = false
+  dryRun = false,
+  customComment = null
 ) {
-  const comment = {
-    type: 'doc',
-    version: 1,
-    content: [
-      {
-        type: 'heading',
-        attrs: {
-          level: 3
-        },
+  // If a custom comment is provided, use it (convert plain text to ADF if needed)
+  // Otherwise, build the default alert-based comment
+  const comment = customComment
+    ? {
+        type: 'doc',
+        version: 1,
         content: [
           {
-            type: 'text',
-            text: 'Dependabot Alert Updated'
-          }
-        ]
-      },
-      {
-        type: 'paragraph',
-        content: []
-      },
-      {
-        type: 'paragraph',
-        content: [
-          {
-            type: 'text',
-            text: `The Dependabot alert #${alert.id} has been updated.`
-          }
-        ]
-      },
-      {
-        type: 'paragraph',
-        content: []
-      },
-      {
-        type: 'paragraph',
-        content: [
-          {
-            type: 'text',
-            text: 'Current Status: ',
-            marks: [{ type: 'strong' }]
-          },
-          {
-            type: 'text',
-            text: alert.state
-          }
-        ]
-      },
-      {
-        type: 'paragraph',
-        content: [
-          {
-            type: 'text',
-            text: 'Last Updated: ',
-            marks: [{ type: 'strong' }]
-          },
-          {
-            type: 'text',
-            text: new Date(alert.updatedAt).toLocaleString()
-          }
-        ]
-      },
-      ...(alert.dismissedAt
-        ? [
-            {
-              type: 'paragraph',
-              content: []
-            },
-            {
-              type: 'paragraph',
-              content: [
-                {
-                  type: 'text',
-                  text: 'Dismissed At: ',
-                  marks: [{ type: 'strong' }]
-                },
-                {
-                  type: 'text',
-                  text: new Date(alert.dismissedAt).toLocaleString()
-                }
-              ]
-            }
-          ]
-        : []),
-      ...(alert.dismissedReason
-        ? [
-            {
-              type: 'paragraph',
-              content: []
-            },
-            {
-              type: 'paragraph',
-              content: [
-                {
-                  type: 'text',
-                  text: 'Dismissed Reason: ',
-                  marks: [{ type: 'strong' }]
-                },
-                {
-                  type: 'text',
-                  text: alert.dismissedReason
-                }
-              ]
-            }
-          ]
-        : []),
-      ...(alert.dismissedComment
-        ? [
-            {
-              type: 'paragraph',
-              content: []
-            },
-            {
-              type: 'paragraph',
-              content: [
-                {
-                  type: 'text',
-                  text: 'Dismissed Comment: ',
-                  marks: [{ type: 'strong' }]
-                },
-                {
-                  type: 'text',
-                  text: alert.dismissedComment
-                }
-              ]
-            }
-          ]
-        : []),
-      {
-        type: 'paragraph',
-        content: []
-      },
-      {
-        type: 'paragraph',
-        content: [
-          {
-            type: 'text',
-            text: 'GitHub Alert URL: ',
-            marks: [{ type: 'strong' }]
-          },
-          {
-            type: 'text',
-            text: alert.url,
-            marks: [
+            type: 'paragraph',
+            content: [
               {
-                type: 'link',
-                attrs: {
-                  href: alert.url
-                }
+                type: 'text',
+                text: customComment
               }
             ]
           }
         ]
       }
-    ]
-  }
+    : {
+        type: 'doc',
+        version: 1,
+        content: [
+          {
+            type: 'heading',
+            attrs: {
+              level: 3
+            },
+            content: [
+              {
+                type: 'text',
+                text: 'Dependabot Alert Updated'
+              }
+            ]
+          },
+          {
+            type: 'paragraph',
+            content: []
+          },
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: `The Dependabot alert #${alert.id} has been updated.`
+              }
+            ]
+          },
+          {
+            type: 'paragraph',
+            content: []
+          },
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: 'Current Status: ',
+                marks: [{ type: 'strong' }]
+              },
+              {
+                type: 'text',
+                text: alert.state
+              }
+            ]
+          },
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: 'Last Updated: ',
+                marks: [{ type: 'strong' }]
+              },
+              {
+                type: 'text',
+                text: new Date(alert.updatedAt).toLocaleString()
+              }
+            ]
+          },
+          ...(alert.dismissedAt
+            ? [
+                {
+                  type: 'paragraph',
+                  content: []
+                },
+                {
+                  type: 'paragraph',
+                  content: [
+                    {
+                      type: 'text',
+                      text: 'Dismissed At: ',
+                      marks: [{ type: 'strong' }]
+                    },
+                    {
+                      type: 'text',
+                      text: new Date(alert.dismissedAt).toLocaleString()
+                    }
+                  ]
+                }
+              ]
+            : []),
+          ...(alert.dismissedReason
+            ? [
+                {
+                  type: 'paragraph',
+                  content: []
+                },
+                {
+                  type: 'paragraph',
+                  content: [
+                    {
+                      type: 'text',
+                      text: 'Dismissed Reason: ',
+                      marks: [{ type: 'strong' }]
+                    },
+                    {
+                      type: 'text',
+                      text: alert.dismissedReason
+                    }
+                  ]
+                }
+              ]
+            : []),
+          ...(alert.dismissedComment
+            ? [
+                {
+                  type: 'paragraph',
+                  content: []
+                },
+                {
+                  type: 'paragraph',
+                  content: [
+                    {
+                      type: 'text',
+                      text: 'Dismissed Comment: ',
+                      marks: [{ type: 'strong' }]
+                    },
+                    {
+                      type: 'text',
+                      text: alert.dismissedComment
+                    }
+                  ]
+                }
+              ]
+            : []),
+          {
+            type: 'paragraph',
+            content: []
+          },
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: 'GitHub Alert URL: ',
+                marks: [{ type: 'strong' }]
+              },
+              {
+                type: 'text',
+                text: alert.url,
+                marks: [
+                  {
+                    type: 'link',
+                    attrs: {
+                      href: alert.url
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
 
   if (dryRun) {
     core.info(`[DRY RUN] Would update Jira issue ${issueKey} with comment`)
@@ -643,10 +673,9 @@ export async function findOpenDependabotIssues(jiraClient, projectKey) {
     core.info(`Found ${issues.length} open Dependabot issues`)
     return issues
   } catch (error) {
-    core.warning(
-      `Failed to search for open Dependabot issues: ${error.message}`
-    )
-    return []
+    // Surface API errors so the workflow fails rather than silently skipping
+    core.error(`Failed to search for open Dependabot issues: ${error.message}`)
+    throw error
   }
 }
 

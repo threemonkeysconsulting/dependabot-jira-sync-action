@@ -70,6 +70,48 @@ describe('Jira API Functions', () => {
       expect(mockAxiosInstance.interceptors.response.use).toHaveBeenCalled()
       expect(client).toBe(mockAxiosInstance)
     })
+
+    it('should validate required inputs', () => {
+      expect(() => createJiraClient('', 'user@company.com', 'token')).toThrow(
+        'Jira URL, username, and API token are required'
+      )
+
+      expect(() =>
+        createJiraClient('https://company.atlassian.net', '', 'token')
+      ).toThrow('Jira URL, username, and API token are required')
+    })
+
+    it('should validate URL format', () => {
+      expect(() =>
+        createJiraClient('not-a-url', 'user@company.com', 'token')
+      ).toThrow('Invalid Jira URL format')
+    })
+
+    it('should surface API errors via interceptor', async () => {
+      createJiraClient('https://company.atlassian.net', 'user', 'token')
+
+      const errorHandler =
+        mockAxiosInstance.interceptors.response.use.mock.calls[0][1]
+
+      const apiError = {
+        response: {
+          status: 400,
+          statusText: 'Bad Request',
+          data: {
+            errorMessages: ['Bad JQL'],
+            message: 'Invalid JQL',
+            errors: { jql: 'Bad JQL' }
+          }
+        }
+      }
+
+      expect(() => errorHandler(apiError)).toThrow(
+        /Jira API Error: Status: 400 Bad Request/
+      )
+      expect(mockCore.error).toHaveBeenCalledWith(
+        expect.stringContaining('Jira API Error: Status: 400 Bad Request')
+      )
+    })
   })
 
   describe('calculateDueDate', () => {
@@ -206,14 +248,14 @@ describe('Jira API Functions', () => {
       expect(result).toBeNull()
     })
 
-    it('should handle search errors gracefully', async () => {
+    it('should surface search errors so the workflow fails', async () => {
       const searchError = new Error('Search failed')
       mockAxiosInstance.get.mockRejectedValue(searchError)
 
-      const result = await findExistingIssue(mockAxiosInstance, 'SEC', 42)
-
-      expect(result).toBeNull()
-      expect(mockCore.warning).toHaveBeenCalledWith(
+      await expect(
+        findExistingIssue(mockAxiosInstance, 'SEC', 42)
+      ).rejects.toThrow('Search failed')
+      expect(mockCore.error).toHaveBeenCalledWith(
         'Failed to search for existing issue: Search failed'
       )
     })
@@ -517,14 +559,14 @@ describe('Jira API Functions', () => {
       )
     })
 
-    it('should handle search errors gracefully', async () => {
+    it('should surface search errors so the workflow fails', async () => {
       const searchError = new Error('JQL syntax error')
       mockAxiosInstance.get.mockRejectedValue(searchError)
 
-      const result = await findOpenDependabotIssues(mockAxiosInstance, 'SEC')
-
-      expect(result).toHaveLength(0)
-      expect(mockCore.warning).toHaveBeenCalledWith(
+      await expect(
+        findOpenDependabotIssues(mockAxiosInstance, 'SEC')
+      ).rejects.toThrow('JQL syntax error')
+      expect(mockCore.error).toHaveBeenCalledWith(
         'Failed to search for open Dependabot issues: JQL syntax error'
       )
     })

@@ -266,4 +266,94 @@ describe('Dependabot Jira Sync', () => {
       'GitHub API rate limit exceeded'
     )
   })
+
+  it('fails the run when Jira processing errors occur', async () => {
+    const mockAlert = {
+      number: 99,
+      security_advisory: { summary: 'Failing alert', severity: 'high' },
+      dependency: { package: { name: 'test' } },
+      html_url: 'https://test.com',
+      state: 'open'
+    }
+
+    const parsedAlert = { id: 99, title: 'Failing alert', severity: 'high' }
+
+    mockGithub.getDependabotAlerts.mockResolvedValue([mockAlert])
+    mockGithub.parseAlert.mockReturnValue(parsedAlert)
+    mockJira.findExistingIssue.mockResolvedValue(null)
+    mockJira.createJiraIssue.mockRejectedValue(new Error('Jira blew up'))
+
+    await run()
+
+    expect(mockCore.setFailed).toHaveBeenCalledWith(
+      'Failed to process 1 alert(s); see logs for details'
+    )
+  })
+
+  it('auto-closes resolved Jira issues when enabled', async () => {
+    mockCore.getBooleanInput.mockImplementation((name) => {
+      if (name === 'auto-close-resolved') return true
+      return false
+    })
+
+    const mockAlert = {
+      number: 7,
+      security_advisory: { summary: 'Test', severity: 'high' },
+      dependency: { package: { name: 'pkg' } },
+      html_url: 'https://example.com',
+      state: 'open'
+    }
+
+    const parsedAlert = { id: 7, title: 'Test', severity: 'high' }
+
+    mockGithub.getDependabotAlerts.mockResolvedValue([mockAlert])
+    mockGithub.parseAlert.mockReturnValue(parsedAlert)
+    mockJira.findExistingIssue.mockResolvedValue(null)
+    mockJira.createJiraIssue.mockResolvedValue({ key: 'TEST-7' })
+
+    // Auto-close path
+    mockJira.findOpenDependabotIssues.mockResolvedValue([{ key: 'TEST-1' }])
+    mockJira.extractAlertIdFromIssue.mockReturnValue('7')
+    mockGithub.getAlertStatus.mockResolvedValue('fixed')
+    mockJira.closeJiraIssue.mockResolvedValue({ closed: true })
+
+    await run()
+
+    expect(mockJira.closeJiraIssue).toHaveBeenCalledWith(
+      expect.any(Object),
+      'TEST-1',
+      'Done',
+      expect.stringContaining('Alert was fixed'),
+      false
+    )
+    expect(mockCore.setOutput).toHaveBeenCalledWith('issues-closed', '1')
+  })
+
+  it('validates config inputs and fails fast on invalid values', async () => {
+    mockCore.getInput.mockImplementation((name, options) => {
+      const inputs = {
+        'jira-url': 'not-a-url',
+        'jira-username': 'user@test.com',
+        'jira-api-token': 'token',
+        'jira-project-key': 'BAD KEY', // space invalid
+        'severity-threshold': 'invalid',
+        'critical-due-days': '0', // out of range
+        'high-due-days': '7',
+        'medium-due-days': '30',
+        'low-due-days': '90'
+      }
+      if (options?.required && !inputs[name]) {
+        throw new Error(`Input required and not supplied: ${name}`)
+      }
+      return inputs[name] || ''
+    })
+
+    mockCore.getBooleanInput.mockReturnValue(false)
+
+    await run()
+
+    expect(mockCore.setFailed).toHaveBeenCalledWith(
+      expect.stringContaining('Invalid Jira URL format')
+    )
+  })
 })

@@ -9,6 +9,29 @@ issues with **configurable due dates based on severity levels**.
 🏢 **Enterprise-ready** with GitHub App authentication for enhanced security and
 scalability.
 
+## ⚠️ Upgrade Notes (Jan 4, 2025)
+
+### Recent Changes
+
+**Error Handling (Breaking Change):**
+
+- Jira API errors now **fail the workflow** instead of silently continuing
+- This ensures you're notified when sync issues occur
+- If your workflow was previously "succeeding" with errors, it may now fail -
+  check your logs
+
+**Priority Field:**
+
+- Priority is now **optional** - automatically omitted for Jira projects that
+  don't support it (e.g., next-gen projects)
+- If your project doesn't have a priority field, the action will work without it
+- No action needed - this is backward compatible
+
+**Jira API Updates:**
+
+- Updated to use the latest Jira REST API v3 endpoints
+- All endpoints verified against current Jira Cloud documentation
+
 ## ✨ Features
 
 - 🔐 **Enterprise-Ready Authentication**: GitHub App authentication
@@ -31,129 +54,89 @@ scalability.
 
 ## 🚀 Quick Start
 
-### Basic Usage
+### 1. Set up Secrets
 
-**Step 1: Configure Repository Settings**
+Go to `Settings → Secrets and variables → Actions` and add:
 
-Set up your configuration in `Settings → Secrets and variables → Actions`:
+**Required Secrets:**
 
-**Variables** (optional, for convenience - can also use secrets):
+- `JIRA_API_TOKEN` - Your Jira API token
+  ([how to create](https://id.atlassian.com/manage-profile/security/api-tokens))
+- `DEPENDABOT_APP_ID` - GitHub App ID (or use `DEPENDABOT_PAT` instead)
+- `DEPENDABOT_APP_PRIVATE_KEY` - GitHub App private key
+- `DEPENDABOT_APP_INSTALLATION_ID` - GitHub App installation ID
 
-```bash
-JIRA_URL = https://yourcompany.atlassian.net
-JIRA_USERNAME = security@yourcompany.com
-JIRA_PROJECT_KEY = SEC
-```
+**Optional Variables** (can also use secrets):
 
-**Secrets** (required for sensitive data):
+- `JIRA_URL` - Your Jira instance URL (e.g., `https://company.atlassian.net`)
+- `JIRA_USERNAME` - Jira username/email
+- `JIRA_PROJECT_KEY` - Jira project key (e.g., `SEC`)
 
-```bash
-JIRA_API_TOKEN = ATATT3xFfGF0T...
-DEPENDABOT_APP_ID = 123456
-DEPENDABOT_APP_PRIVATE_KEY = -----BEGIN RSA PRIVATE KEY-----...
-DEPENDABOT_APP_INSTALLATION_ID = 12345678
-```
+### 2. Create Workflow
 
-> **💡 Security Note**: Variables are visible to anyone with repository access.
-> If your organization considers Jira URLs or project keys sensitive, put
-> everything in Secrets instead. The action supports both:
-> `${{ secrets.JIRA_URL || vars.JIRA_URL }}`
-
-**Step 2: Create Workflow**
+Create `.github/workflows/dependabot-sync.yml`:
 
 ```yaml
-name: 'Dependabot Jira Sync'
+name: 'Sync Dependabot to Jira'
 on:
   schedule:
-    # Run every 6 hours
-    - cron: '0 */6 * * *'
-  workflow_dispatch: # Allow manual trigger
+    - cron: '0 */6 * * *' # Every 6 hours
+  workflow_dispatch: # Manual trigger
 
 jobs:
-  sync-dependabot-alerts:
+  sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Sync Dependabot Alerts to Jira
-        uses: threemonkeysconsulting/dependabot-jira-sync-action@v1
+      - uses: threemonkeysconsulting/dependabot-jira-sync-action@v1
         with:
-          # GitHub Authentication - Choose ONE method:
-
-          # Option 1: GitHub App (Recommended)
+          # GitHub App (recommended) or use github-token instead
           github-app-id: ${{ secrets.DEPENDABOT_APP_ID }}
           github-app-private-key: ${{ secrets.DEPENDABOT_APP_PRIVATE_KEY }}
           github-app-installation-id:
             ${{ secrets.DEPENDABOT_APP_INSTALLATION_ID }}
 
-          # Option 2: Personal Access Token (Alternative)
-          # github-token: ${{ secrets.DEPENDABOT_PAT }}
-
-          # Jira Configuration
+          # Jira config
           jira-url: ${{ secrets.JIRA_URL || vars.JIRA_URL }}
           jira-username: ${{ secrets.JIRA_USERNAME || vars.JIRA_USERNAME }}
           jira-api-token: ${{ secrets.JIRA_API_TOKEN }}
           jira-project-key:
             ${{ secrets.JIRA_PROJECT_KEY || vars.JIRA_PROJECT_KEY }}
 
-          # Severity-based due dates (in days)
-          critical-due-days: '1' # Critical issues due in 1 day
-          high-due-days: '7' # High issues due in 1 week
-          medium-due-days: '30' # Medium issues due in 1 month
-          low-due-days: '90' # Low issues due in 3 months
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Due dates (days from alert creation)
+          critical-due-days: '1'
+          high-due-days: '7'
+          medium-due-days: '30'
+          low-due-days: '90'
 ```
 
-### Advanced Configuration
+That's it! The action will automatically create Jira issues for Dependabot
+alerts.
+
+> **💡 Tip**: Test first with `dry-run: 'true'` to see what would happen without
+> making changes.
+
+### Advanced Example
+
+For more control, customize issue types, priorities, and filtering:
 
 ```yaml
-name: 'Advanced Dependabot Jira Sync'
-on:
-  schedule:
-    - cron: '0 8,14,20 * * *' # Run 3 times daily
-  workflow_dispatch:
+- uses: threemonkeysconsulting/dependabot-jira-sync-action@v1
+  with:
+    # ... basic config from above ...
 
-jobs:
-  sync-alerts:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Sync Critical and High Severity Alerts
-        uses: threemonkeysconsulting/dependabot-jira-sync-action@v1
-        with:
-          # GitHub App Authentication (Recommended)
-          github-app-id: ${{ secrets.DEPENDABOT_APP_ID }}
-          github-app-private-key: ${{ secrets.DEPENDABOT_APP_PRIVATE_KEY }}
-          github-app-installation-id:
-            ${{ secrets.DEPENDABOT_APP_INSTALLATION_ID }}
+    # Customize Jira issue
+    jira-issue-type: 'Security Vulnerability'
+    jira-priority: 'High' # Optional - omitted if project doesn't support it
+    jira-labels: 'dependabot,security,auto-created'
+    jira-assignee: 'security-team'
 
-          # Jira Configuration
-          jira-url: ${{ secrets.JIRA_URL || vars.JIRA_URL }}
-          jira-username: ${{ secrets.JIRA_USERNAME || vars.JIRA_USERNAME }}
-          jira-api-token: ${{ secrets.JIRA_API_TOKEN }}
-          jira-project-key:
-            ${{ secrets.JIRA_PROJECT_KEY || vars.JIRA_PROJECT_KEY }}
-          jira-issue-type: 'Security Vulnerability'
-          jira-priority: 'High'
-          jira-labels: 'dependabot,security,auto-created'
-          jira-assignee: 'security-team-lead'
+    # Filtering
+    severity-threshold: 'medium' # Only medium+ severity
+    exclude-dismissed: 'true' # Skip dismissed alerts
 
-          # Due Date Configuration (days from creation)
-          critical-due-days: '1' # Same day fix required
-          high-due-days: '7' # 1 week to fix
-          medium-due-days: '30' # 1 month to fix
-          low-due-days: '90' # 3 months to fix
-
-          # Filter Configuration
-          severity-threshold: 'medium' # Only process medium+ severity
-          exclude-dismissed: 'true' # Skip dismissed alerts
-
-          # Behavior Configuration
-          update-existing: 'true' # Update existing issues
-          auto-close-resolved: 'true' # Auto-close when alerts are resolved
-          close-transition: 'Done' # Jira transition for closing issues
-          close-comment:
-            'This issue has been automatically closed because the associated
-            Dependabot alert was resolved.'
-          dry-run: 'false' # Make actual changes
+    # Auto-close resolved issues
+    auto-close-resolved: 'true'
+    close-transition: 'Done'
 ```
 
 ## 📋 Inputs
@@ -254,61 +237,38 @@ You have **three ways** to configure the action (in order of precedence):
 | `JIRA_API_TOKEN`   | ✅      | ❌        | **Always use secrets** - sensitive! |
 | `JIRA_PROJECT_KEY` | ✅      | ✅        | Project code, usually not sensitive |
 
-### 1. Jira API Token
-
-1. Go to
-   [Atlassian Account Settings](https://id.atlassian.com/manage-profile/security/api-tokens)
-2. Click "Create API token"
-3. Add the token as `JIRA_API_TOKEN` in your repository secrets
-
-NOTE: The `jira-username` must match the owner of the API token
-
-### 2. GitHub Authentication
+### GitHub Authentication
 
 **Choose ONE of the following authentication methods:**
 
-#### Option A: GitHub App (⭐ Recommended) 🏢
+#### Option A: GitHub App (⭐ Recommended)
 
 1. **Create GitHub App:**
-   - Go to **Settings** → **Developer settings** → **GitHub Apps** → **New
-     GitHub App**
-   - Configure permissions:
-     - ✅ Security events: Read
-     - ✅ Contents: Read
-     - ✅ Metadata: Read
-   - Disable webhooks (not needed)
+   - Settings → Developer settings → GitHub Apps → New GitHub App
+   - Permissions: Security events (Read), Contents (Read), Metadata (Read)
+   - Disable webhooks
 
 2. **Install on repositories:**
-   - Go to app settings → **Install App**
-   - Select repositories
+   - App settings → Install App → Select repositories
 
 3. **Add secrets:**
-   - `DEPENDABOT_APP_ID`: Your app ID
-   - `DEPENDABOT_APP_PRIVATE_KEY`: Your app's private key (download .pem file
-     content)
-   - `DEPENDABOT_APP_INSTALLATION_ID`: Installation ID from the URL
+   - `DEPENDABOT_APP_ID` - App ID
+   - `DEPENDABOT_APP_PRIVATE_KEY` - Private key (.pem file content)
+   - `DEPENDABOT_APP_INSTALLATION_ID` - Installation ID from URL
 
-**GitHub App advantages:**
+**Why GitHub App?** Fine-grained permissions, organization-owned, auto-rotating
+tokens, better for enterprise.
 
-- ✅ Fine-grained permissions
-- ✅ Organization-owned (not user-tied)
-- ✅ Auto-rotating tokens
-- ✅ Better for enterprise security
+#### Option B: Personal Access Token
 
-#### Option B: Personal Access Token (Alternative) 🔑
+1. Settings → Developer settings → Personal access tokens → Tokens (classic)
+2. Generate new token with scopes: `security_events`, `repo`
+3. Add as `DEPENDABOT_PAT` secret
 
-1. Go to **Settings** → **Developer settings** → **Personal access tokens** →
-   **Tokens (classic)**
-2. Click **"Generate new token"**
-3. Select scopes:
-   - ✅ `security_events` (read security events)
-   - ✅ `repo` (access repositories)
-4. Add token as `DEPENDABOT_PAT` in repository secrets
+> **Note**: Default `GITHUB_TOKEN` has limited Dependabot access. Use GitHub App
+> or PAT.
 
-**Note:** The default `GITHUB_TOKEN` has limited access to Dependabot alerts.
-You must use either a GitHub App or PAT for this action to work properly.
-
-### 3. Jira Permissions
+### Jira Permissions
 
 Ensure your Jira user has permissions to:
 
