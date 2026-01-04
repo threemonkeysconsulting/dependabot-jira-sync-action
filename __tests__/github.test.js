@@ -151,6 +151,30 @@ describe('GitHub API Functions', () => {
       expect(result).toHaveLength(3)
     })
 
+    it('should include low severity when threshold is low and exclude dismissed alerts', async () => {
+      // API returns only open alerts when excludeDismissed is true
+      mockOctokit.rest.dependabot.listAlertsForRepo.mockResolvedValueOnce({
+        data: mockAlertsOpen
+      })
+
+      const result = await getDependabotAlerts('owner', 'repo', {
+        excludeDismissed: true,
+        severityThreshold: 'low'
+      })
+
+      expect(
+        mockOctokit.rest.dependabot.listAlertsForRepo
+      ).toHaveBeenCalledWith({
+        owner: 'owner',
+        repo: 'repo',
+        state: 'open',
+        per_page: 100
+      })
+
+      // Should include both open alerts (high + low), exclude dismissed critical
+      expect(result.map((a) => a.number).sort()).toEqual([1, 2])
+    })
+
     it('should handle invalid severity threshold', async () => {
       await expect(
         getDependabotAlerts('owner', 'repo', {

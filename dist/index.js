@@ -57928,10 +57928,14 @@ async function findExistingIssue(jiraClient, projectKey, alertId) {
       }
     });
 
-    return response.data.issues.length > 0 ? response.data.issues[0] : null
+    coreExports.debug(
+      `Search JQL: ${jql}, found ${response.data?.issues?.length || 0} issues`
+    );
+    return response.data?.issues?.length > 0 ? response.data.issues[0] : null
   } catch (error) {
-    coreExports.warning(`Failed to search for existing issue: ${error.message}`);
-    return null
+    // Surface API errors so the workflow fails rather than silently skipping
+    coreExports.error(`Failed to search for existing issue: ${error.message}`);
+    throw error
   }
 }
 
@@ -58029,7 +58033,7 @@ async function createJiraIssue(
           },
           {
             type: 'text',
-            text: alert.vulnerableVersionRange
+            text: alert.vulnerableVersionRange || 'Not available'
           }
         ]
       },
@@ -58043,7 +58047,7 @@ async function createJiraIssue(
           },
           {
             type: 'text',
-            text: alert.firstPatchedVersion
+            text: alert.firstPatchedVersion || 'Not available'
           }
         ]
       },
@@ -58190,10 +58194,14 @@ async function createJiraIssue(
       summary: `Dependabot Alert #${alert.id}: ${alert.title}`,
       description,
       issuetype: { name: issueType },
-      priority: { name: priority },
       duedate: dueDate
     }
   };
+
+  // Priority is optional - only include if provided (some next-gen projects don't support it)
+  if (priority) {
+    issueData.fields.priority = { name: priority };
+  }
 
   // Add labels if provided
   if (labels && labels.length > 0) {
@@ -58211,6 +58219,9 @@ async function createJiraIssue(
   }
 
   try {
+    coreExports.debug(
+      `Creating Jira issue with payload: ${JSON.stringify(issueData, null, 2)}`
+    );
     const response = await jiraClient.post('/issue', issueData);
     coreExports.info(`Created Jira issue: ${response.data.key}`);
     return response.data
@@ -58232,163 +58243,182 @@ async function updateJiraIssue(
   jiraClient,
   issueKey,
   alert,
-  dryRun = false
+  dryRun = false,
+  customComment = null
 ) {
-  const comment = {
-    type: 'doc',
-    version: 1,
-    content: [
-      {
-        type: 'heading',
-        attrs: {
-          level: 3
-        },
+  // If a custom comment is provided, use it (convert plain text to ADF if needed)
+  // Otherwise, build the default alert-based comment
+  const comment = customComment
+    ? {
+        type: 'doc',
+        version: 1,
         content: [
           {
-            type: 'text',
-            text: 'Dependabot Alert Updated'
-          }
-        ]
-      },
-      {
-        type: 'paragraph',
-        content: []
-      },
-      {
-        type: 'paragraph',
-        content: [
-          {
-            type: 'text',
-            text: `The Dependabot alert #${alert.id} has been updated.`
-          }
-        ]
-      },
-      {
-        type: 'paragraph',
-        content: []
-      },
-      {
-        type: 'paragraph',
-        content: [
-          {
-            type: 'text',
-            text: 'Current Status: ',
-            marks: [{ type: 'strong' }]
-          },
-          {
-            type: 'text',
-            text: alert.state
-          }
-        ]
-      },
-      {
-        type: 'paragraph',
-        content: [
-          {
-            type: 'text',
-            text: 'Last Updated: ',
-            marks: [{ type: 'strong' }]
-          },
-          {
-            type: 'text',
-            text: new Date(alert.updatedAt).toLocaleString()
-          }
-        ]
-      },
-      ...(alert.dismissedAt
-        ? [
-            {
-              type: 'paragraph',
-              content: []
-            },
-            {
-              type: 'paragraph',
-              content: [
-                {
-                  type: 'text',
-                  text: 'Dismissed At: ',
-                  marks: [{ type: 'strong' }]
-                },
-                {
-                  type: 'text',
-                  text: new Date(alert.dismissedAt).toLocaleString()
-                }
-              ]
-            }
-          ]
-        : []),
-      ...(alert.dismissedReason
-        ? [
-            {
-              type: 'paragraph',
-              content: []
-            },
-            {
-              type: 'paragraph',
-              content: [
-                {
-                  type: 'text',
-                  text: 'Dismissed Reason: ',
-                  marks: [{ type: 'strong' }]
-                },
-                {
-                  type: 'text',
-                  text: alert.dismissedReason
-                }
-              ]
-            }
-          ]
-        : []),
-      ...(alert.dismissedComment
-        ? [
-            {
-              type: 'paragraph',
-              content: []
-            },
-            {
-              type: 'paragraph',
-              content: [
-                {
-                  type: 'text',
-                  text: 'Dismissed Comment: ',
-                  marks: [{ type: 'strong' }]
-                },
-                {
-                  type: 'text',
-                  text: alert.dismissedComment
-                }
-              ]
-            }
-          ]
-        : []),
-      {
-        type: 'paragraph',
-        content: []
-      },
-      {
-        type: 'paragraph',
-        content: [
-          {
-            type: 'text',
-            text: 'GitHub Alert URL: ',
-            marks: [{ type: 'strong' }]
-          },
-          {
-            type: 'text',
-            text: alert.url,
-            marks: [
+            type: 'paragraph',
+            content: [
               {
-                type: 'link',
-                attrs: {
-                  href: alert.url
-                }
+                type: 'text',
+                text: customComment
               }
             ]
           }
         ]
       }
-    ]
-  };
+    : {
+        type: 'doc',
+        version: 1,
+        content: [
+          {
+            type: 'heading',
+            attrs: {
+              level: 3
+            },
+            content: [
+              {
+                type: 'text',
+                text: 'Dependabot Alert Updated'
+              }
+            ]
+          },
+          {
+            type: 'paragraph',
+            content: []
+          },
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: `The Dependabot alert #${alert.id} has been updated.`
+              }
+            ]
+          },
+          {
+            type: 'paragraph',
+            content: []
+          },
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: 'Current Status: ',
+                marks: [{ type: 'strong' }]
+              },
+              {
+                type: 'text',
+                text: alert.state
+              }
+            ]
+          },
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: 'Last Updated: ',
+                marks: [{ type: 'strong' }]
+              },
+              {
+                type: 'text',
+                text: new Date(alert.updatedAt).toLocaleString()
+              }
+            ]
+          },
+          ...(alert.dismissedAt
+            ? [
+                {
+                  type: 'paragraph',
+                  content: []
+                },
+                {
+                  type: 'paragraph',
+                  content: [
+                    {
+                      type: 'text',
+                      text: 'Dismissed At: ',
+                      marks: [{ type: 'strong' }]
+                    },
+                    {
+                      type: 'text',
+                      text: new Date(alert.dismissedAt).toLocaleString()
+                    }
+                  ]
+                }
+              ]
+            : []),
+          ...(alert.dismissedReason
+            ? [
+                {
+                  type: 'paragraph',
+                  content: []
+                },
+                {
+                  type: 'paragraph',
+                  content: [
+                    {
+                      type: 'text',
+                      text: 'Dismissed Reason: ',
+                      marks: [{ type: 'strong' }]
+                    },
+                    {
+                      type: 'text',
+                      text: alert.dismissedReason
+                    }
+                  ]
+                }
+              ]
+            : []),
+          ...(alert.dismissedComment
+            ? [
+                {
+                  type: 'paragraph',
+                  content: []
+                },
+                {
+                  type: 'paragraph',
+                  content: [
+                    {
+                      type: 'text',
+                      text: 'Dismissed Comment: ',
+                      marks: [{ type: 'strong' }]
+                    },
+                    {
+                      type: 'text',
+                      text: alert.dismissedComment
+                    }
+                  ]
+                }
+              ]
+            : []),
+          {
+            type: 'paragraph',
+            content: []
+          },
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: 'GitHub Alert URL: ',
+                marks: [{ type: 'strong' }]
+              },
+              {
+                type: 'text',
+                text: alert.url,
+                marks: [
+                  {
+                    type: 'link',
+                    attrs: {
+                      href: alert.url
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      };
 
   if (dryRun) {
     coreExports.info(`[DRY RUN] Would update Jira issue ${issueKey} with comment`);
@@ -58438,10 +58468,9 @@ async function findOpenDependabotIssues(jiraClient, projectKey) {
     coreExports.info(`Found ${issues.length} open Dependabot issues`);
     return issues
   } catch (error) {
-    coreExports.warning(
-      `Failed to search for open Dependabot issues: ${error.message}`
-    );
-    return []
+    // Surface API errors so the workflow fails rather than silently skipping
+    coreExports.error(`Failed to search for open Dependabot issues: ${error.message}`);
+    throw error
   }
 }
 
@@ -58678,6 +58707,7 @@ async function run() {
 
     let issuesCreated = 0;
     let issuesUpdated = 0;
+    let processingErrors = 0;
     const processedAlerts = [];
 
     // Process each alert
@@ -58727,9 +58757,16 @@ async function run() {
           }
         }
       } catch (error) {
+        processingErrors++;
         coreExports.error(`Failed to process alert #${alert.number}: ${error.message}`);
-        // Continue processing other alerts
+        // Continue processing other alerts but mark the run as failed later
       }
+    }
+
+    if (processingErrors > 0) {
+      throw new Error(
+        `Failed to process ${processingErrors} alert(s); see logs for details`
+      )
     }
 
     // Auto-close resolved issues if enabled
