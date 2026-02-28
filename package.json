@@ -64,7 +64,7 @@
     "markdownlint-cli": "^0.45.0",
     "prettier": "^3.6.2",
     "prettier-eslint": "^16.4.2",
-    "rollup": "^4.46.2"
+    "rollup": "^4.59.0"
   },
   "optionalDependencies": {
     "@rollup/rollup-linux-x64-gnu": "*"
