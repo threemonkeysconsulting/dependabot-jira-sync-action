@@ -37800,6 +37800,98 @@ function parseAlert(alert) {
 }
 
 /**
+ * Group parsed alerts by advisory ID (GHSA or CVE).
+ * Alerts sharing the same advisory are merged into a single group.
+ * Alerts without an advisory ID are returned separately.
+ * @param {Array} parsedAlerts - Array of parsed alert objects
+ * @returns {{ advisoryGroups: Array, ungroupedAlerts: Array }}
+ */
+function groupAlertsByAdvisory(parsedAlerts) {
+  const groups = new Map();
+  const ungrouped = [];
+
+  for (const alert of parsedAlerts) {
+    const advisoryId = alert.ghsaId || alert.cveId;
+    if (!advisoryId) {
+      ungrouped.push(alert);
+      continue
+    }
+
+    if (!groups.has(advisoryId)) {
+      groups.set(advisoryId, []);
+    }
+    groups.get(advisoryId).push(alert);
+  }
+
+  const severityOrder = ['low', 'medium', 'high', 'critical'];
+  const result = [];
+
+  for (const [advisoryId, alerts] of groups) {
+    const highestSeverity = alerts.reduce((highest, alert) => {
+      const currentIndex = severityOrder.indexOf(alert.severity);
+      const highestIndex = severityOrder.indexOf(highest);
+      return currentIndex > highestIndex ? alert.severity : highest
+    }, alerts[0].severity);
+
+    const earliestCreatedAt = alerts.reduce((earliest, alert) => {
+      if (!earliest || (alert.createdAt && alert.createdAt < earliest)) {
+        return alert.createdAt
+      }
+      return earliest
+    }, null);
+
+    const latestUpdatedAt = alerts.reduce((latest, alert) => {
+      if (!latest || (alert.updatedAt && alert.updatedAt > latest)) {
+        return alert.updatedAt
+      }
+      return latest
+    }, null);
+
+    const representative = alerts[0];
+
+    const uniquePackages = [...new Set(alerts.map((a) => a.package))];
+    const uniqueVersionRanges = [
+      ...new Set(alerts.map((a) => a.vulnerableVersionRange))
+    ];
+    const uniquePatchedVersions = [
+      ...new Set(
+        alerts
+          .filter((a) => a.firstPatchedVersion !== 'Not available')
+          .map((a) => a.firstPatchedVersion)
+      )
+    ];
+
+    result.push({
+      isAdvisoryGroup: true,
+      advisoryId,
+      alerts,
+      alertIds: alerts.map((a) => a.id),
+      id: advisoryId,
+      title: representative.title,
+      description: representative.description,
+      severity: highestSeverity,
+      package: uniquePackages.join(', '),
+      ecosystem: representative.ecosystem,
+      vulnerableVersionRange: uniqueVersionRanges.join('; '),
+      firstPatchedVersion: uniquePatchedVersions.join('; ') || 'Not available',
+      cvss: representative.cvss,
+      cveId: representative.cveId,
+      ghsaId: representative.ghsaId,
+      url: alerts[0].url,
+      urls: alerts.map((a) => a.url),
+      createdAt: earliestCreatedAt,
+      updatedAt: latestUpdatedAt,
+      state: alerts.some((a) => a.state === 'open') ? 'open' : alerts[0].state,
+      dismissedAt: null,
+      dismissedReason: null,
+      dismissedComment: null
+    });
+  }
+
+  return { advisoryGroups: result, ungroupedAlerts: ungrouped }
+}
+
+/**
  * Get the status of a specific Dependabot alert
  * @param {string} owner - Repository owner
  * @param {string} repo - Repository name
@@ -57875,6 +57967,28 @@ function createJiraClient(jiraUrl, username, apiToken) {
   return client
 }
 
+const SEVERITY_TO_PRIORITY = {
+  critical: 'Highest',
+  high: 'High',
+  medium: 'Medium',
+  low: 'Low'
+};
+
+/**
+ * Resolve the Jira priority for an alert.
+ * When set to "auto", maps Dependabot severity to Jira priority.
+ * Any other value is returned as-is (static priority).
+ * @param {string} prioritySetting - The jira-priority input value
+ * @param {string} severity - Dependabot alert severity (critical, high, medium, low)
+ * @returns {string|null} Resolved Jira priority name, or null if it cannot be determined
+ */
+function resolvePriority(prioritySetting, severity) {
+  if (prioritySetting?.toLowerCase() !== 'auto') {
+    return prioritySetting || null
+  }
+  return SEVERITY_TO_PRIORITY[severity?.toLowerCase()] ?? null
+}
+
 /**
  * Calculate due date based on severity and alert creation date
  * @param {string} severity - Alert severity (critical, high, medium, low)
@@ -58199,8 +58313,9 @@ async function createJiraIssue(
   };
 
   // Priority is optional - only include if provided (some next-gen projects don't support it)
-  if (priority) {
-    issueData.fields.priority = { name: priority };
+  const resolvedPriority = resolvePriority(priority, alert.severity);
+  if (resolvedPriority) {
+    issueData.fields.priority = { name: resolvedPriority };
   }
 
   // Add labels if provided
@@ -58509,6 +58624,414 @@ function extractAlertIdFromIssue(issue) {
 }
 
 /**
+ * Find an existing Jira issue for an advisory (GHSA/CVE)
+ * @param {Object} jiraClient - Jira API client
+ * @param {string} projectKey - Jira project key
+ * @param {string} advisoryId - Advisory identifier (GHSA-xxx or CVE-xxx)
+ * @returns {Promise<Object|null>} Existing issue or null
+ */
+async function findExistingAdvisoryIssue(
+  jiraClient,
+  projectKey,
+  advisoryId
+) {
+  if (!validateProjectKey(projectKey)) {
+    throw new Error(`Invalid project key format: ${projectKey}`)
+  }
+
+  const sanitizedProjectKey = sanitizeForJQL(projectKey);
+  const sanitizedAdvisoryId = sanitizeForJQL(advisoryId);
+
+  if (!sanitizedAdvisoryId) {
+    throw new Error(`Invalid advisory ID: ${advisoryId}`)
+  }
+
+  try {
+    const jql = `project = "${sanitizedProjectKey}" AND summary ~ "Advisory ${sanitizedAdvisoryId}"`;
+
+    const response = await jiraClient.get('/search/jql', {
+      params: {
+        jql,
+        fields: 'key,summary,status,updated'
+      }
+    });
+
+    coreExports.debug(
+      `Search JQL: ${jql}, found ${response.data?.issues?.length || 0} issues`
+    );
+    return response.data?.issues?.length > 0 ? response.data.issues[0] : null
+  } catch (error) {
+    coreExports.error(`Failed to search for existing advisory issue: ${error.message}`);
+    throw error
+  }
+}
+
+/**
+ * Create a Jira issue for an advisory group (multiple alerts sharing the same advisory)
+ * @param {Object} jiraClient - Jira API client
+ * @param {Object} config - Jira configuration
+ * @param {Object} advisoryGroup - Grouped advisory object from groupAlertsByAdvisory
+ * @param {boolean} dryRun - Whether this is a dry run
+ * @returns {Promise<Object>} Created issue data
+ */
+async function createAdvisoryJiraIssue(
+  jiraClient,
+  config,
+  advisoryGroup,
+  dryRun = false
+) {
+  const { projectKey, issueType, priority, labels, assignee } = config;
+
+  const dueDate = calculateDueDate(
+    advisoryGroup.severity,
+    config.dueDays,
+    advisoryGroup.createdAt
+  );
+
+  const alertIdsStr = advisoryGroup.alertIds.map((id) => `#${id}`).join(', ');
+  const summary = `Advisory ${advisoryGroup.advisoryId} [${alertIdsStr}]: ${advisoryGroup.title}`;
+
+  const alertDetailNodes = advisoryGroup.alerts.flatMap((alert, index) => [
+    {
+      type: 'paragraph',
+      content: [
+        {
+          type: 'text',
+          text: `Alert #${alert.id}: `,
+          marks: [{ type: 'strong' }]
+        },
+        {
+          type: 'text',
+          text: `${alert.package} (${alert.vulnerableVersionRange}) → ${alert.firstPatchedVersion}`
+        }
+      ]
+    },
+    {
+      type: 'paragraph',
+      content: [
+        {
+          type: 'text',
+          text: 'GitHub Alert URL: ',
+          marks: [{ type: 'strong' }]
+        },
+        {
+          type: 'text',
+          text: alert.url,
+          marks: [
+            {
+              type: 'link',
+              attrs: { href: alert.url }
+            }
+          ]
+        }
+      ]
+    },
+    ...(index < advisoryGroup.alerts.length - 1
+      ? [{ type: 'paragraph', content: [] }]
+      : [])
+  ]);
+
+  const description = {
+    type: 'doc',
+    version: 1,
+    content: [
+      {
+        type: 'heading',
+        attrs: { level: 2 },
+        content: [
+          {
+            type: 'text',
+            text: `Security Advisory: ${advisoryGroup.advisoryId}`
+          }
+        ]
+      },
+      { type: 'paragraph', content: [] },
+      {
+        type: 'paragraph',
+        content: [
+          {
+            type: 'text',
+            text: 'Severity: ',
+            marks: [{ type: 'strong' }]
+          },
+          {
+            type: 'text',
+            text: advisoryGroup.severity.toUpperCase()
+          }
+        ]
+      },
+      {
+        type: 'paragraph',
+        content: [
+          {
+            type: 'text',
+            text: 'Affected Packages: ',
+            marks: [{ type: 'strong' }]
+          },
+          {
+            type: 'text',
+            text: advisoryGroup.package
+          }
+        ]
+      },
+      {
+        type: 'paragraph',
+        content: [
+          {
+            type: 'text',
+            text: 'Ecosystem: ',
+            marks: [{ type: 'strong' }]
+          },
+          {
+            type: 'text',
+            text: advisoryGroup.ecosystem
+          }
+        ]
+      },
+      { type: 'paragraph', content: [] },
+      {
+        type: 'heading',
+        attrs: { level: 3 },
+        content: [{ type: 'text', text: 'Description' }]
+      },
+      {
+        type: 'paragraph',
+        content: [{ type: 'text', text: advisoryGroup.description }]
+      },
+      ...(advisoryGroup.cvss
+        ? [
+            { type: 'paragraph', content: [] },
+            {
+              type: 'paragraph',
+              content: [
+                {
+                  type: 'text',
+                  text: 'CVSS Score: ',
+                  marks: [{ type: 'strong' }]
+                },
+                {
+                  type: 'text',
+                  text: advisoryGroup.cvss.toString()
+                }
+              ]
+            }
+          ]
+        : []),
+      ...(advisoryGroup.cveId
+        ? [
+            {
+              type: 'paragraph',
+              content: [
+                {
+                  type: 'text',
+                  text: 'CVE ID: ',
+                  marks: [{ type: 'strong' }]
+                },
+                {
+                  type: 'text',
+                  text: advisoryGroup.cveId
+                }
+              ]
+            }
+          ]
+        : []),
+      ...(advisoryGroup.ghsaId
+        ? [
+            {
+              type: 'paragraph',
+              content: [
+                {
+                  type: 'text',
+                  text: 'GHSA ID: ',
+                  marks: [{ type: 'strong' }]
+                },
+                {
+                  type: 'text',
+                  text: advisoryGroup.ghsaId
+                }
+              ]
+            }
+          ]
+        : []),
+      { type: 'paragraph', content: [] },
+      { type: 'rule' },
+      {
+        type: 'heading',
+        attrs: { level: 3 },
+        content: [
+          {
+            type: 'text',
+            text: `Affected Alerts (${advisoryGroup.alerts.length})`
+          }
+        ]
+      },
+      ...alertDetailNodes,
+      { type: 'paragraph', content: [] },
+      { type: 'rule' },
+      {
+        type: 'paragraph',
+        content: [
+          {
+            type: 'text',
+            text: 'This issue was automatically created by the Dependabot Jira Sync action.',
+            marks: [{ type: 'em' }]
+          }
+        ]
+      }
+    ]
+  };
+
+  const issueData = {
+    fields: {
+      project: { key: projectKey },
+      summary,
+      description,
+      issuetype: { name: issueType },
+      duedate: dueDate
+    }
+  };
+
+  const resolvedPriority = resolvePriority(priority, advisoryGroup.severity);
+  if (resolvedPriority) {
+    issueData.fields.priority = { name: resolvedPriority };
+  }
+
+  if (labels && labels.length > 0) {
+    issueData.fields.labels = labels.split(',').map((label) => label.trim());
+  }
+
+  if (assignee) {
+    issueData.fields.assignee = { name: assignee };
+  }
+
+  if (dryRun) {
+    coreExports.info(`[DRY RUN] Would create advisory Jira issue: ${summary}`);
+    return { key: 'DRY-RUN-KEY', dryRun: true }
+  }
+
+  try {
+    coreExports.debug(
+      `Creating advisory Jira issue with payload: ${JSON.stringify(issueData, null, 2)}`
+    );
+    const response = await jiraClient.post('/issue', issueData);
+    coreExports.info(`Created advisory Jira issue: ${response.data.key}`);
+    return response.data
+  } catch (error) {
+    coreExports.error(`Failed to create advisory Jira issue: ${error.message}`);
+    throw error
+  }
+}
+
+/**
+ * Update an advisory Jira issue: update summary with new alert IDs and add a comment
+ * @param {Object} jiraClient - Jira API client
+ * @param {string} issueKey - Jira issue key
+ * @param {string} existingSummary - Current issue summary
+ * @param {Object} advisoryGroup - Grouped advisory object
+ * @param {boolean} dryRun - Whether this is a dry run
+ * @returns {Promise<Object>} Update result
+ */
+async function updateAdvisoryJiraIssue(
+  jiraClient,
+  issueKey,
+  existingSummary,
+  advisoryGroup,
+  dryRun = false
+) {
+  const existingMatch = existingSummary.match(/\[((?:#\d+(?:,\s*)?)+)\]/);
+  const existingAlertIds = existingMatch
+    ? new Set([...existingMatch[1].matchAll(/#(\d+)/g)].map((m) => m[1]))
+    : new Set();
+
+  const newAlertIds = advisoryGroup.alertIds.filter(
+    (id) => !existingAlertIds.has(String(id))
+  );
+
+  const allAlertIds = [
+    ...new Set([...existingAlertIds, ...advisoryGroup.alertIds.map(String)])
+  ];
+  const alertIdsStr = allAlertIds.map((id) => `#${id}`).join(', ');
+
+  let newSummary;
+  if (existingMatch) {
+    newSummary = existingSummary.replace(
+      /\[(?:#\d+(?:,\s*)?)+\]/,
+      `[${alertIdsStr}]`
+    );
+  } else {
+    newSummary = existingSummary.replace(
+      /^(Advisory (?:GHSA|CVE)-[\w-]+)/,
+      `$1 [${alertIdsStr}]`
+    );
+  }
+
+  const commentText =
+    newAlertIds.length > 0
+      ? `Advisory updated: New alert(s) added: ${newAlertIds.map((id) => `#${id}`).join(', ')}. Total alerts: ${allAlertIds.length}.`
+      : `Advisory re-processed. Total alerts: ${allAlertIds.length}. No new alerts.`;
+
+  if (dryRun) {
+    coreExports.info(
+      `[DRY RUN] Would update advisory issue ${issueKey}: ${commentText}`
+    );
+    return { updated: true, dryRun: true }
+  }
+
+  try {
+    if (newSummary !== existingSummary) {
+      await jiraClient.put(`/issue/${issueKey}`, {
+        fields: { summary: newSummary }
+      });
+      coreExports.info(`Updated summary for ${issueKey}`);
+    }
+
+    await jiraClient.post(`/issue/${issueKey}/comment`, {
+      body: {
+        type: 'doc',
+        version: 1,
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: commentText }]
+          }
+        ]
+      }
+    });
+
+    coreExports.info(`Updated advisory Jira issue: ${issueKey}`);
+    return { updated: true }
+  } catch (error) {
+    coreExports.error(
+      `Failed to update advisory Jira issue ${issueKey}: ${error.message}`
+    );
+    throw error
+  }
+}
+
+/**
+ * Extract advisory ID and alert IDs from an advisory Jira issue summary
+ * @param {Object} issue - Jira issue object
+ * @returns {{ advisoryId: string, alertIds: string[] } | null}
+ */
+function extractAdvisoryInfoFromIssue(issue) {
+  const summary = issue.summary || issue.fields?.summary;
+
+  if (!summary) return null
+
+  const advisoryMatch = summary.match(/Advisory ((?:GHSA|CVE)-[\w-]+)/);
+  if (!advisoryMatch) return null
+
+  const advisoryId = advisoryMatch[1];
+
+  const alertIdsMatch = summary.match(/\[((?:#\d+(?:,\s*)?)+)\]/);
+  const alertIds = alertIdsMatch
+    ? [...alertIdsMatch[1].matchAll(/#(\d+)/g)].map((m) => m[1])
+    : [];
+
+  return { advisoryId, alertIds }
+}
+
+/**
  * Close a Jira issue with a transition
  * @param {Object} jiraClient - Axios instance for Jira API
  * @param {string} issueKey - Jira issue key
@@ -58659,6 +59182,8 @@ function getConfig() {
       closeComment:
         coreExports.getInput('close-comment') ||
         'This issue has been automatically closed because the associated Dependabot alert was resolved.',
+      deduplicateByAdvisory:
+        coreExports.getBooleanInput('deduplicate-by-advisory') === true,
       dryRun: coreExports.getBooleanInput('dry-run') === true
     }
   }
@@ -58710,56 +59235,172 @@ async function run() {
     let processingErrors = 0;
     const processedAlerts = [];
 
-    // Process each alert
-    for (const alert of alerts) {
-      try {
-        const parsedAlert = parseAlert(alert);
-        processedAlerts.push(parsedAlert);
+    if (config.behavior.deduplicateByAdvisory) {
+      coreExports.info(
+        '🔗 Advisory deduplication enabled — grouping alerts by advisory ID'
+      );
 
-        coreExports.info(`Processing alert #${parsedAlert.id}: ${parsedAlert.title}`);
+      const parsedAlerts = alerts.map((alert) => parseAlert(alert));
+      processedAlerts.push(...parsedAlerts);
 
-        // Check if issue already exists
-        const existingIssue = await findExistingIssue(
-          jiraClient,
-          config.jira.projectKey,
-          parsedAlert.id
-        );
+      const { advisoryGroups, ungroupedAlerts } =
+        groupAlertsByAdvisory(parsedAlerts);
 
-        if (existingIssue) {
-          if (config.behavior.updateExisting) {
-            coreExports.info(`Found existing issue: ${existingIssue.key}`);
-            await updateJiraIssue(
+      coreExports.info(
+        `Grouped ${parsedAlerts.length} alerts into ${advisoryGroups.length} advisory group(s) and ${ungroupedAlerts.length} individual alert(s)`
+      );
+
+      for (const group of advisoryGroups) {
+        try {
+          coreExports.info(
+            `Processing advisory ${group.advisoryId} (${group.alertIds.length} alert(s): ${group.alertIds.map((id) => `#${id}`).join(', ')})`
+          );
+
+          const existingIssue = await findExistingAdvisoryIssue(
+            jiraClient,
+            config.jira.projectKey,
+            group.advisoryId
+          );
+
+          if (existingIssue) {
+            if (config.behavior.updateExisting) {
+              coreExports.info(`Found existing advisory issue: ${existingIssue.key}`);
+              const summary =
+                existingIssue.summary || existingIssue.fields?.summary;
+              await updateAdvisoryJiraIssue(
+                jiraClient,
+                existingIssue.key,
+                summary,
+                group,
+                config.behavior.dryRun
+              );
+              issuesUpdated++;
+            } else {
+              coreExports.info(
+                `Skipping existing advisory issue: ${existingIssue.key} (update-existing is false)`
+              );
+            }
+          } else {
+            const newIssue = await createAdvisoryJiraIssue(
               jiraClient,
-              existingIssue.key,
+              config.jira,
+              group,
+              config.behavior.dryRun
+            );
+            issuesCreated++;
+
+            if (!config.behavior.dryRun) {
+              coreExports.info(
+                `✅ Created Jira issue ${newIssue.key} for advisory ${group.advisoryId}`
+              );
+            }
+          }
+        } catch (error) {
+          processingErrors++;
+          coreExports.error(
+            `Failed to process advisory ${group.advisoryId}: ${error.message}`
+          );
+        }
+      }
+
+      for (const alert of ungroupedAlerts) {
+        try {
+          coreExports.info(`Processing ungrouped alert #${alert.id}: ${alert.title}`);
+
+          const existingIssue = await findExistingIssue(
+            jiraClient,
+            config.jira.projectKey,
+            alert.id
+          );
+
+          if (existingIssue) {
+            if (config.behavior.updateExisting) {
+              coreExports.info(`Found existing issue: ${existingIssue.key}`);
+              await updateJiraIssue(
+                jiraClient,
+                existingIssue.key,
+                alert,
+                config.behavior.dryRun
+              );
+              issuesUpdated++;
+            } else {
+              coreExports.info(
+                `Skipping existing issue: ${existingIssue.key} (update-existing is false)`
+              );
+            }
+          } else {
+            const newIssue = await createJiraIssue(
+              jiraClient,
+              config.jira,
+              alert,
+              config.behavior.dryRun
+            );
+            issuesCreated++;
+
+            if (!config.behavior.dryRun) {
+              coreExports.info(
+                `✅ Created Jira issue ${newIssue.key} for alert #${alert.id}`
+              );
+            }
+          }
+        } catch (error) {
+          processingErrors++;
+          coreExports.error(
+            `Failed to process alert #${alert.number || alert.id}: ${error.message}`
+          );
+        }
+      }
+    } else {
+      // Original mode: process each alert individually
+      for (const alert of alerts) {
+        try {
+          const parsedAlert = parseAlert(alert);
+          processedAlerts.push(parsedAlert);
+
+          coreExports.info(`Processing alert #${parsedAlert.id}: ${parsedAlert.title}`);
+
+          const existingIssue = await findExistingIssue(
+            jiraClient,
+            config.jira.projectKey,
+            parsedAlert.id
+          );
+
+          if (existingIssue) {
+            if (config.behavior.updateExisting) {
+              coreExports.info(`Found existing issue: ${existingIssue.key}`);
+              await updateJiraIssue(
+                jiraClient,
+                existingIssue.key,
+                parsedAlert,
+                config.behavior.dryRun
+              );
+              issuesUpdated++;
+            } else {
+              coreExports.info(
+                `Skipping existing issue: ${existingIssue.key} (update-existing is false)`
+              );
+            }
+          } else {
+            const newIssue = await createJiraIssue(
+              jiraClient,
+              config.jira,
               parsedAlert,
               config.behavior.dryRun
             );
-            issuesUpdated++;
-          } else {
-            coreExports.info(
-              `Skipping existing issue: ${existingIssue.key} (update-existing is false)`
-            );
-          }
-        } else {
-          // Create new issue
-          const newIssue = await createJiraIssue(
-            jiraClient,
-            config.jira,
-            parsedAlert,
-            config.behavior.dryRun
-          );
-          issuesCreated++;
+            issuesCreated++;
 
-          if (!config.behavior.dryRun) {
-            coreExports.info(
-              `✅ Created Jira issue ${newIssue.key} for alert #${parsedAlert.id}`
-            );
+            if (!config.behavior.dryRun) {
+              coreExports.info(
+                `✅ Created Jira issue ${newIssue.key} for alert #${parsedAlert.id}`
+              );
+            }
           }
+        } catch (error) {
+          processingErrors++;
+          coreExports.error(
+            `Failed to process alert #${alert.number}: ${error.message}`
+          );
         }
-      } catch (error) {
-        processingErrors++;
-        coreExports.error(`Failed to process alert #${alert.number}: ${error.message}`);
-        // Continue processing other alerts but mark the run as failed later
       }
     }
 
@@ -58783,7 +59424,50 @@ async function run() {
 
         for (const issue of openIssues) {
           try {
-            // Extract alert ID from the issue
+            // When deduplication is on, try advisory-based close first
+            if (config.behavior.deduplicateByAdvisory) {
+              const advisoryInfo = extractAdvisoryInfoFromIssue(issue);
+              if (advisoryInfo && advisoryInfo.alertIds.length > 0) {
+                let allResolved = true;
+                let lastStatus = '';
+
+                for (const alertId of advisoryInfo.alertIds) {
+                  const status = await getAlertStatus(owner, repo, alertId);
+                  lastStatus = status;
+                  if (status === 'open' || status === 'unknown') {
+                    allResolved = false;
+                    break
+                  }
+                }
+
+                if (allResolved) {
+                  const closeComment = `${config.behavior.closeComment}\n\nReason: All ${advisoryInfo.alertIds.length} alert(s) for advisory ${advisoryInfo.advisoryId} have been resolved.`;
+
+                  await closeJiraIssue(
+                    jiraClient,
+                    issue.key,
+                    config.behavior.closeTransition,
+                    closeComment,
+                    config.behavior.dryRun
+                  );
+
+                  issuesClosed++;
+
+                  if (!config.behavior.dryRun) {
+                    coreExports.info(
+                      `🔒 Closed advisory issue ${issue.key} (${advisoryInfo.advisoryId} — all alerts resolved)`
+                    );
+                  }
+                } else {
+                  coreExports.debug(
+                    `Advisory ${advisoryInfo.advisoryId} still has open alerts, keeping ${issue.key} open`
+                  );
+                }
+                continue
+              }
+            }
+
+            // Single-alert close (default mode or fallback)
             const alertId = extractAlertIdFromIssue(issue);
             if (!alertId) {
               continue // Skip if we can't extract alert ID

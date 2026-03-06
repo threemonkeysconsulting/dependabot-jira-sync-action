@@ -3,7 +3,8 @@ import {
   getRepoInfo,
   getDependabotAlerts,
   parseAlert,
-  getAlertStatus
+  getAlertStatus,
+  groupAlertsByAdvisory
 } from './github.js'
 import {
   createJiraClient,
@@ -12,7 +13,11 @@ import {
   updateJiraIssue,
   findOpenDependabotIssues,
   extractAlertIdFromIssue,
-  closeJiraIssue
+  closeJiraIssue,
+  findExistingAdvisoryIssue,
+  createAdvisoryJiraIssue,
+  updateAdvisoryJiraIssue,
+  extractAdvisoryInfoFromIssue
 } from './jira.js'
 
 /**
@@ -88,6 +93,8 @@ function getConfig() {
       closeComment:
         core.getInput('close-comment') ||
         'This issue has been automatically closed because the associated Dependabot alert was resolved.',
+      deduplicateByAdvisory:
+        core.getBooleanInput('deduplicate-by-advisory') === true,
       dryRun: core.getBooleanInput('dry-run') === true
     }
   }
@@ -139,56 +146,172 @@ export async function run() {
     let processingErrors = 0
     const processedAlerts = []
 
-    // Process each alert
-    for (const alert of alerts) {
-      try {
-        const parsedAlert = parseAlert(alert)
-        processedAlerts.push(parsedAlert)
+    if (config.behavior.deduplicateByAdvisory) {
+      core.info(
+        '🔗 Advisory deduplication enabled — grouping alerts by advisory ID'
+      )
 
-        core.info(`Processing alert #${parsedAlert.id}: ${parsedAlert.title}`)
+      const parsedAlerts = alerts.map((alert) => parseAlert(alert))
+      processedAlerts.push(...parsedAlerts)
 
-        // Check if issue already exists
-        const existingIssue = await findExistingIssue(
-          jiraClient,
-          config.jira.projectKey,
-          parsedAlert.id
-        )
+      const { advisoryGroups, ungroupedAlerts } =
+        groupAlertsByAdvisory(parsedAlerts)
 
-        if (existingIssue) {
-          if (config.behavior.updateExisting) {
-            core.info(`Found existing issue: ${existingIssue.key}`)
-            await updateJiraIssue(
+      core.info(
+        `Grouped ${parsedAlerts.length} alerts into ${advisoryGroups.length} advisory group(s) and ${ungroupedAlerts.length} individual alert(s)`
+      )
+
+      for (const group of advisoryGroups) {
+        try {
+          core.info(
+            `Processing advisory ${group.advisoryId} (${group.alertIds.length} alert(s): ${group.alertIds.map((id) => `#${id}`).join(', ')})`
+          )
+
+          const existingIssue = await findExistingAdvisoryIssue(
+            jiraClient,
+            config.jira.projectKey,
+            group.advisoryId
+          )
+
+          if (existingIssue) {
+            if (config.behavior.updateExisting) {
+              core.info(`Found existing advisory issue: ${existingIssue.key}`)
+              const summary =
+                existingIssue.summary || existingIssue.fields?.summary
+              await updateAdvisoryJiraIssue(
+                jiraClient,
+                existingIssue.key,
+                summary,
+                group,
+                config.behavior.dryRun
+              )
+              issuesUpdated++
+            } else {
+              core.info(
+                `Skipping existing advisory issue: ${existingIssue.key} (update-existing is false)`
+              )
+            }
+          } else {
+            const newIssue = await createAdvisoryJiraIssue(
               jiraClient,
-              existingIssue.key,
+              config.jira,
+              group,
+              config.behavior.dryRun
+            )
+            issuesCreated++
+
+            if (!config.behavior.dryRun) {
+              core.info(
+                `✅ Created Jira issue ${newIssue.key} for advisory ${group.advisoryId}`
+              )
+            }
+          }
+        } catch (error) {
+          processingErrors++
+          core.error(
+            `Failed to process advisory ${group.advisoryId}: ${error.message}`
+          )
+        }
+      }
+
+      for (const alert of ungroupedAlerts) {
+        try {
+          core.info(`Processing ungrouped alert #${alert.id}: ${alert.title}`)
+
+          const existingIssue = await findExistingIssue(
+            jiraClient,
+            config.jira.projectKey,
+            alert.id
+          )
+
+          if (existingIssue) {
+            if (config.behavior.updateExisting) {
+              core.info(`Found existing issue: ${existingIssue.key}`)
+              await updateJiraIssue(
+                jiraClient,
+                existingIssue.key,
+                alert,
+                config.behavior.dryRun
+              )
+              issuesUpdated++
+            } else {
+              core.info(
+                `Skipping existing issue: ${existingIssue.key} (update-existing is false)`
+              )
+            }
+          } else {
+            const newIssue = await createJiraIssue(
+              jiraClient,
+              config.jira,
+              alert,
+              config.behavior.dryRun
+            )
+            issuesCreated++
+
+            if (!config.behavior.dryRun) {
+              core.info(
+                `✅ Created Jira issue ${newIssue.key} for alert #${alert.id}`
+              )
+            }
+          }
+        } catch (error) {
+          processingErrors++
+          core.error(
+            `Failed to process alert #${alert.number || alert.id}: ${error.message}`
+          )
+        }
+      }
+    } else {
+      // Original mode: process each alert individually
+      for (const alert of alerts) {
+        try {
+          const parsedAlert = parseAlert(alert)
+          processedAlerts.push(parsedAlert)
+
+          core.info(`Processing alert #${parsedAlert.id}: ${parsedAlert.title}`)
+
+          const existingIssue = await findExistingIssue(
+            jiraClient,
+            config.jira.projectKey,
+            parsedAlert.id
+          )
+
+          if (existingIssue) {
+            if (config.behavior.updateExisting) {
+              core.info(`Found existing issue: ${existingIssue.key}`)
+              await updateJiraIssue(
+                jiraClient,
+                existingIssue.key,
+                parsedAlert,
+                config.behavior.dryRun
+              )
+              issuesUpdated++
+            } else {
+              core.info(
+                `Skipping existing issue: ${existingIssue.key} (update-existing is false)`
+              )
+            }
+          } else {
+            const newIssue = await createJiraIssue(
+              jiraClient,
+              config.jira,
               parsedAlert,
               config.behavior.dryRun
             )
-            issuesUpdated++
-          } else {
-            core.info(
-              `Skipping existing issue: ${existingIssue.key} (update-existing is false)`
-            )
-          }
-        } else {
-          // Create new issue
-          const newIssue = await createJiraIssue(
-            jiraClient,
-            config.jira,
-            parsedAlert,
-            config.behavior.dryRun
-          )
-          issuesCreated++
+            issuesCreated++
 
-          if (!config.behavior.dryRun) {
-            core.info(
-              `✅ Created Jira issue ${newIssue.key} for alert #${parsedAlert.id}`
-            )
+            if (!config.behavior.dryRun) {
+              core.info(
+                `✅ Created Jira issue ${newIssue.key} for alert #${parsedAlert.id}`
+              )
+            }
           }
+        } catch (error) {
+          processingErrors++
+          core.error(
+            `Failed to process alert #${alert.number}: ${error.message}`
+          )
         }
-      } catch (error) {
-        processingErrors++
-        core.error(`Failed to process alert #${alert.number}: ${error.message}`)
-        // Continue processing other alerts but mark the run as failed later
       }
     }
 
@@ -212,7 +335,50 @@ export async function run() {
 
         for (const issue of openIssues) {
           try {
-            // Extract alert ID from the issue
+            // When deduplication is on, try advisory-based close first
+            if (config.behavior.deduplicateByAdvisory) {
+              const advisoryInfo = extractAdvisoryInfoFromIssue(issue)
+              if (advisoryInfo && advisoryInfo.alertIds.length > 0) {
+                let allResolved = true
+                let lastStatus = ''
+
+                for (const alertId of advisoryInfo.alertIds) {
+                  const status = await getAlertStatus(owner, repo, alertId)
+                  lastStatus = status
+                  if (status === 'open' || status === 'unknown') {
+                    allResolved = false
+                    break
+                  }
+                }
+
+                if (allResolved) {
+                  const closeComment = `${config.behavior.closeComment}\n\nReason: All ${advisoryInfo.alertIds.length} alert(s) for advisory ${advisoryInfo.advisoryId} have been resolved.`
+
+                  await closeJiraIssue(
+                    jiraClient,
+                    issue.key,
+                    config.behavior.closeTransition,
+                    closeComment,
+                    config.behavior.dryRun
+                  )
+
+                  issuesClosed++
+
+                  if (!config.behavior.dryRun) {
+                    core.info(
+                      `🔒 Closed advisory issue ${issue.key} (${advisoryInfo.advisoryId} — all alerts resolved)`
+                    )
+                  }
+                } else {
+                  core.debug(
+                    `Advisory ${advisoryInfo.advisoryId} still has open alerts, keeping ${issue.key} open`
+                  )
+                }
+                continue
+              }
+            }
+
+            // Single-alert close (default mode or fallback)
             const alertId = extractAlertIdFromIssue(issue)
             if (!alertId) {
               continue // Skip if we can't extract alert ID

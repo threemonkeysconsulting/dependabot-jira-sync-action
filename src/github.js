@@ -185,6 +185,98 @@ export function parseAlert(alert) {
 }
 
 /**
+ * Group parsed alerts by advisory ID (GHSA or CVE).
+ * Alerts sharing the same advisory are merged into a single group.
+ * Alerts without an advisory ID are returned separately.
+ * @param {Array} parsedAlerts - Array of parsed alert objects
+ * @returns {{ advisoryGroups: Array, ungroupedAlerts: Array }}
+ */
+export function groupAlertsByAdvisory(parsedAlerts) {
+  const groups = new Map()
+  const ungrouped = []
+
+  for (const alert of parsedAlerts) {
+    const advisoryId = alert.ghsaId || alert.cveId
+    if (!advisoryId) {
+      ungrouped.push(alert)
+      continue
+    }
+
+    if (!groups.has(advisoryId)) {
+      groups.set(advisoryId, [])
+    }
+    groups.get(advisoryId).push(alert)
+  }
+
+  const severityOrder = ['low', 'medium', 'high', 'critical']
+  const result = []
+
+  for (const [advisoryId, alerts] of groups) {
+    const highestSeverity = alerts.reduce((highest, alert) => {
+      const currentIndex = severityOrder.indexOf(alert.severity)
+      const highestIndex = severityOrder.indexOf(highest)
+      return currentIndex > highestIndex ? alert.severity : highest
+    }, alerts[0].severity)
+
+    const earliestCreatedAt = alerts.reduce((earliest, alert) => {
+      if (!earliest || (alert.createdAt && alert.createdAt < earliest)) {
+        return alert.createdAt
+      }
+      return earliest
+    }, null)
+
+    const latestUpdatedAt = alerts.reduce((latest, alert) => {
+      if (!latest || (alert.updatedAt && alert.updatedAt > latest)) {
+        return alert.updatedAt
+      }
+      return latest
+    }, null)
+
+    const representative = alerts[0]
+
+    const uniquePackages = [...new Set(alerts.map((a) => a.package))]
+    const uniqueVersionRanges = [
+      ...new Set(alerts.map((a) => a.vulnerableVersionRange))
+    ]
+    const uniquePatchedVersions = [
+      ...new Set(
+        alerts
+          .filter((a) => a.firstPatchedVersion !== 'Not available')
+          .map((a) => a.firstPatchedVersion)
+      )
+    ]
+
+    result.push({
+      isAdvisoryGroup: true,
+      advisoryId,
+      alerts,
+      alertIds: alerts.map((a) => a.id),
+      id: advisoryId,
+      title: representative.title,
+      description: representative.description,
+      severity: highestSeverity,
+      package: uniquePackages.join(', '),
+      ecosystem: representative.ecosystem,
+      vulnerableVersionRange: uniqueVersionRanges.join('; '),
+      firstPatchedVersion: uniquePatchedVersions.join('; ') || 'Not available',
+      cvss: representative.cvss,
+      cveId: representative.cveId,
+      ghsaId: representative.ghsaId,
+      url: alerts[0].url,
+      urls: alerts.map((a) => a.url),
+      createdAt: earliestCreatedAt,
+      updatedAt: latestUpdatedAt,
+      state: alerts.some((a) => a.state === 'open') ? 'open' : alerts[0].state,
+      dismissedAt: null,
+      dismissedReason: null,
+      dismissedComment: null
+    })
+  }
+
+  return { advisoryGroups: result, ungroupedAlerts: ungrouped }
+}
+
+/**
  * Get the status of a specific Dependabot alert
  * @param {string} owner - Repository owner
  * @param {string} repo - Repository name

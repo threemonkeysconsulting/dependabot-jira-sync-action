@@ -52,7 +52,10 @@ inputs:
     required: false
     default: 'Bug'
   jira-priority:
-    description: 'Default Jira priority for issues'
+    description:
+      'Jira priority for created issues. Use "auto" to map from Dependabot
+      severity (critical→Highest, high→High, medium→Medium, low→Low), or specify
+      a static value (e.g. "High").'
     required: false
     default: 'Medium'
   jira-labels:
@@ -113,6 +116,14 @@ inputs:
     default:
       'This issue has been automatically closed because the associated
       Dependabot alert was resolved.'
+  deduplicate-by-advisory:
+    description:
+      'When enabled, groups Dependabot alerts by advisory ID (GHSA/CVE) and
+      creates one Jira issue per unique advisory instead of one per alert.
+      Reduces duplicate tickets when the same vulnerability affects multiple
+      manifest entries.'
+    required: false
+    default: 'false'
   dry-run:
     description: 'If true, only log what would be done without making changes'
     required: false

@@ -19,7 +19,8 @@ const mockGithub = {
   getRepoInfo: jest.fn(),
   getDependabotAlerts: jest.fn(),
   parseAlert: jest.fn(),
-  getAlertStatus: jest.fn()
+  getAlertStatus: jest.fn(),
+  groupAlertsByAdvisory: jest.fn()
 }
 
 const mockJira = {
@@ -29,7 +30,11 @@ const mockJira = {
   updateJiraIssue: jest.fn(),
   findOpenDependabotIssues: jest.fn(),
   extractAlertIdFromIssue: jest.fn(),
-  closeJiraIssue: jest.fn()
+  closeJiraIssue: jest.fn(),
+  findExistingAdvisoryIssue: jest.fn(),
+  createAdvisoryJiraIssue: jest.fn(),
+  updateAdvisoryJiraIssue: jest.fn(),
+  extractAdvisoryInfoFromIssue: jest.fn()
 }
 
 // Mock the modules before importing the main function
@@ -327,6 +332,352 @@ describe('Dependabot Jira Sync', () => {
       false
     )
     expect(mockCore.setOutput).toHaveBeenCalledWith('issues-closed', '1')
+  })
+
+  describe('deduplicate-by-advisory mode', () => {
+    beforeEach(() => {
+      mockCore.getBooleanInput.mockImplementation((name) => {
+        const booleanInputs = {
+          'exclude-dismissed': true,
+          'update-existing': true,
+          'auto-close-resolved': false,
+          'deduplicate-by-advisory': true,
+          'dry-run': false
+        }
+        return booleanInputs[name] || false
+      })
+    })
+
+    it('groups alerts by advisory and creates one issue per advisory', async () => {
+      const rawAlerts = [
+        {
+          number: 1,
+          security_advisory: {
+            summary: 'Prototype pollution in lodash',
+            description: 'desc',
+            severity: 'critical',
+            ghsa_id: 'GHSA-jf85-cpcp-j695',
+            cve_id: 'CVE-2019-10744'
+          },
+          dependency: { package: { name: 'lodash', ecosystem: 'npm' } },
+          html_url: 'https://github.com/test/alert/1',
+          created_at: '2023-01-01T00:00:00Z',
+          updated_at: '2023-01-01T00:00:00Z',
+          state: 'open'
+        },
+        {
+          number: 2,
+          security_advisory: {
+            summary: 'Prototype pollution in lodash',
+            description: 'desc',
+            severity: 'critical',
+            ghsa_id: 'GHSA-jf85-cpcp-j695',
+            cve_id: 'CVE-2019-10744'
+          },
+          dependency: { package: { name: 'lodash', ecosystem: 'npm' } },
+          html_url: 'https://github.com/test/alert/2',
+          created_at: '2023-01-02T00:00:00Z',
+          updated_at: '2023-01-02T00:00:00Z',
+          state: 'open'
+        }
+      ]
+
+      const parsedAlert1 = {
+        id: 1,
+        title: 'Prototype pollution in lodash',
+        severity: 'critical',
+        ghsaId: 'GHSA-jf85-cpcp-j695',
+        cveId: 'CVE-2019-10744',
+        package: 'lodash',
+        url: 'https://github.com/test/alert/1',
+        createdAt: '2023-01-01T00:00:00Z'
+      }
+
+      const parsedAlert2 = {
+        id: 2,
+        title: 'Prototype pollution in lodash',
+        severity: 'critical',
+        ghsaId: 'GHSA-jf85-cpcp-j695',
+        cveId: 'CVE-2019-10744',
+        package: 'lodash',
+        url: 'https://github.com/test/alert/2',
+        createdAt: '2023-01-02T00:00:00Z'
+      }
+
+      const advisoryGroup = {
+        isAdvisoryGroup: true,
+        advisoryId: 'GHSA-jf85-cpcp-j695',
+        alertIds: [1, 2],
+        alerts: [parsedAlert1, parsedAlert2],
+        severity: 'critical',
+        title: 'Prototype pollution in lodash'
+      }
+
+      mockGithub.getDependabotAlerts.mockResolvedValue(rawAlerts)
+      mockGithub.parseAlert
+        .mockReturnValueOnce(parsedAlert1)
+        .mockReturnValueOnce(parsedAlert2)
+      mockGithub.groupAlertsByAdvisory.mockReturnValue({
+        advisoryGroups: [advisoryGroup],
+        ungroupedAlerts: []
+      })
+      mockJira.findExistingAdvisoryIssue.mockResolvedValue(null)
+      mockJira.createAdvisoryJiraIssue.mockResolvedValue({ key: 'SEC-200' })
+
+      await run()
+
+      expect(mockGithub.groupAlertsByAdvisory).toHaveBeenCalled()
+      expect(mockJira.createAdvisoryJiraIssue).toHaveBeenCalledTimes(1)
+      expect(mockJira.createAdvisoryJiraIssue).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ projectKey: 'TEST' }),
+        advisoryGroup,
+        false
+      )
+      expect(mockCore.setOutput).toHaveBeenCalledWith('issues-created', '1')
+    })
+
+    it('updates existing advisory issue when found', async () => {
+      const rawAlert = {
+        number: 1,
+        security_advisory: {
+          summary: 'Vuln',
+          severity: 'high',
+          ghsa_id: 'GHSA-aaaa-bbbb-cccc'
+        },
+        dependency: { package: { name: 'pkg' } },
+        html_url: 'https://github.com/test/alert/1',
+        state: 'open'
+      }
+
+      const parsedAlert = {
+        id: 1,
+        title: 'Vuln',
+        severity: 'high',
+        ghsaId: 'GHSA-aaaa-bbbb-cccc',
+        cveId: null,
+        package: 'pkg'
+      }
+
+      const advisoryGroup = {
+        isAdvisoryGroup: true,
+        advisoryId: 'GHSA-aaaa-bbbb-cccc',
+        alertIds: [1],
+        alerts: [parsedAlert],
+        severity: 'high',
+        title: 'Vuln'
+      }
+
+      mockGithub.getDependabotAlerts.mockResolvedValue([rawAlert])
+      mockGithub.parseAlert.mockReturnValue(parsedAlert)
+      mockGithub.groupAlertsByAdvisory.mockReturnValue({
+        advisoryGroups: [advisoryGroup],
+        ungroupedAlerts: []
+      })
+
+      const existingIssue = {
+        key: 'SEC-100',
+        summary: 'Advisory GHSA-aaaa-bbbb-cccc [#1]: Vuln'
+      }
+      mockJira.findExistingAdvisoryIssue.mockResolvedValue(existingIssue)
+      mockJira.updateAdvisoryJiraIssue.mockResolvedValue({ updated: true })
+
+      await run()
+
+      expect(mockJira.updateAdvisoryJiraIssue).toHaveBeenCalledWith(
+        expect.any(Object),
+        'SEC-100',
+        'Advisory GHSA-aaaa-bbbb-cccc [#1]: Vuln',
+        advisoryGroup,
+        false
+      )
+      expect(mockCore.setOutput).toHaveBeenCalledWith('issues-updated', '1')
+    })
+
+    it('processes ungrouped alerts individually', async () => {
+      const rawAlert = {
+        number: 5,
+        security_advisory: { summary: 'No advisory ID', severity: 'low' },
+        dependency: { package: { name: 'pkg' } },
+        html_url: 'https://github.com/test/alert/5',
+        state: 'open'
+      }
+
+      const parsedAlert = {
+        id: 5,
+        title: 'No advisory ID',
+        severity: 'low',
+        ghsaId: null,
+        cveId: null,
+        package: 'pkg'
+      }
+
+      mockGithub.getDependabotAlerts.mockResolvedValue([rawAlert])
+      mockGithub.parseAlert.mockReturnValue(parsedAlert)
+      mockGithub.groupAlertsByAdvisory.mockReturnValue({
+        advisoryGroups: [],
+        ungroupedAlerts: [parsedAlert]
+      })
+      mockJira.findExistingIssue.mockResolvedValue(null)
+      mockJira.createJiraIssue.mockResolvedValue({ key: 'TEST-500' })
+
+      await run()
+
+      expect(mockJira.createJiraIssue).toHaveBeenCalledTimes(1)
+      expect(mockCore.setOutput).toHaveBeenCalledWith('issues-created', '1')
+    })
+
+    it('auto-closes advisory issues when all alerts are resolved', async () => {
+      mockCore.getBooleanInput.mockImplementation((name) => {
+        const booleanInputs = {
+          'exclude-dismissed': true,
+          'update-existing': true,
+          'auto-close-resolved': true,
+          'deduplicate-by-advisory': true,
+          'dry-run': false
+        }
+        return booleanInputs[name] || false
+      })
+
+      const rawAlert = {
+        number: 3,
+        security_advisory: {
+          summary: 'Another vuln',
+          severity: 'medium',
+          ghsa_id: 'GHSA-zzzz-zzzz-zzzz'
+        },
+        dependency: { package: { name: 'other-pkg' } },
+        html_url: 'https://github.com/test/alert/3',
+        state: 'open'
+      }
+      const parsedAlert = {
+        id: 3,
+        title: 'Another vuln',
+        severity: 'medium',
+        ghsaId: 'GHSA-zzzz-zzzz-zzzz',
+        cveId: null,
+        package: 'other-pkg'
+      }
+
+      mockGithub.getDependabotAlerts.mockResolvedValue([rawAlert])
+      mockGithub.parseAlert.mockReturnValue(parsedAlert)
+      mockGithub.groupAlertsByAdvisory.mockReturnValue({
+        advisoryGroups: [
+          {
+            isAdvisoryGroup: true,
+            advisoryId: 'GHSA-zzzz-zzzz-zzzz',
+            alertIds: [3],
+            alerts: [parsedAlert],
+            severity: 'medium',
+            title: 'Another vuln'
+          }
+        ],
+        ungroupedAlerts: []
+      })
+      mockJira.findExistingAdvisoryIssue.mockResolvedValue(null)
+      mockJira.createAdvisoryJiraIssue.mockResolvedValue({ key: 'SEC-300' })
+
+      mockJira.findOpenDependabotIssues.mockResolvedValue([
+        {
+          key: 'SEC-200',
+          summary: 'Advisory GHSA-jf85-cpcp-j695 [#1, #2]: Prototype pollution'
+        }
+      ])
+
+      mockJira.extractAdvisoryInfoFromIssue.mockReturnValue({
+        advisoryId: 'GHSA-jf85-cpcp-j695',
+        alertIds: ['1', '2']
+      })
+
+      mockGithub.getAlertStatus
+        .mockResolvedValueOnce('fixed')
+        .mockResolvedValueOnce('fixed')
+
+      mockJira.closeJiraIssue.mockResolvedValue({ closed: true })
+
+      await run()
+
+      expect(mockJira.closeJiraIssue).toHaveBeenCalledWith(
+        expect.any(Object),
+        'SEC-200',
+        'Done',
+        expect.stringContaining('All 2 alert(s)'),
+        false
+      )
+      expect(mockCore.setOutput).toHaveBeenCalledWith('issues-closed', '1')
+    })
+
+    it('keeps advisory issue open when not all alerts are resolved', async () => {
+      mockCore.getBooleanInput.mockImplementation((name) => {
+        const booleanInputs = {
+          'exclude-dismissed': true,
+          'update-existing': true,
+          'auto-close-resolved': true,
+          'deduplicate-by-advisory': true,
+          'dry-run': false
+        }
+        return booleanInputs[name] || false
+      })
+
+      const rawAlert = {
+        number: 3,
+        security_advisory: {
+          summary: 'Another vuln',
+          severity: 'medium',
+          ghsa_id: 'GHSA-zzzz-zzzz-zzzz'
+        },
+        dependency: { package: { name: 'other-pkg' } },
+        html_url: 'https://github.com/test/alert/3',
+        state: 'open'
+      }
+      const parsedAlert = {
+        id: 3,
+        title: 'Another vuln',
+        severity: 'medium',
+        ghsaId: 'GHSA-zzzz-zzzz-zzzz',
+        cveId: null,
+        package: 'other-pkg'
+      }
+
+      mockGithub.getDependabotAlerts.mockResolvedValue([rawAlert])
+      mockGithub.parseAlert.mockReturnValue(parsedAlert)
+      mockGithub.groupAlertsByAdvisory.mockReturnValue({
+        advisoryGroups: [
+          {
+            isAdvisoryGroup: true,
+            advisoryId: 'GHSA-zzzz-zzzz-zzzz',
+            alertIds: [3],
+            alerts: [parsedAlert],
+            severity: 'medium',
+            title: 'Another vuln'
+          }
+        ],
+        ungroupedAlerts: []
+      })
+      mockJira.findExistingAdvisoryIssue.mockResolvedValue(null)
+      mockJira.createAdvisoryJiraIssue.mockResolvedValue({ key: 'SEC-300' })
+
+      mockJira.findOpenDependabotIssues.mockResolvedValue([
+        {
+          key: 'SEC-200',
+          summary: 'Advisory GHSA-jf85-cpcp-j695 [#1, #2]: Prototype pollution'
+        }
+      ])
+
+      mockJira.extractAdvisoryInfoFromIssue.mockReturnValue({
+        advisoryId: 'GHSA-jf85-cpcp-j695',
+        alertIds: ['1', '2']
+      })
+
+      mockGithub.getAlertStatus
+        .mockResolvedValueOnce('fixed')
+        .mockResolvedValueOnce('open')
+
+      await run()
+
+      expect(mockJira.closeJiraIssue).not.toHaveBeenCalled()
+      expect(mockCore.setOutput).toHaveBeenCalledWith('issues-closed', '0')
+    })
   })
 
   it('validates config inputs and fails fast on invalid values', async () => {

@@ -197,13 +197,14 @@ vulnerabilities maintain proper urgency.
 
 ### Behavior Configuration
 
-| Input                 | Description                                     | Default                                                                                          | Required |
-| --------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------ | -------- |
-| `update-existing`     | Update existing Jira issues                     | `true`                                                                                           | ❌       |
-| `auto-close-resolved` | Auto-close Jira issues when alerts are resolved | `true`                                                                                           | ❌       |
-| `close-transition`    | Jira transition name to close issues            | `Done`                                                                                           | ❌       |
-| `close-comment`       | Comment to add when auto-closing issues         | `This issue has been automatically closed because the associated Dependabot alert was resolved.` | ❌       |
-| `dry-run`             | Only log what would be done                     | `false`                                                                                          | ❌       |
+| Input                     | Description                                                         | Default                                                                                          | Required |
+| ------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | -------- |
+| `update-existing`         | Update existing Jira issues                                         | `true`                                                                                           | ❌       |
+| `auto-close-resolved`     | Auto-close Jira issues when alerts are resolved                     | `true`                                                                                           | ❌       |
+| `close-transition`        | Jira transition name to close issues                                | `Done`                                                                                           | ❌       |
+| `close-comment`           | Comment to add when auto-closing issues                             | `This issue has been automatically closed because the associated Dependabot alert was resolved.` | ❌       |
+| `deduplicate-by-advisory` | Group alerts by advisory ID (GHSA/CVE); one Jira issue per advisory | `false`                                                                                          | ❌       |
+| `dry-run`                 | Only log what would be done                                         | `false`                                                                                          | ❌       |
 
 ## 📤 Outputs
 
@@ -326,6 +327,95 @@ Test the action without making changes:
     jira-project-key: 'TEST'
     dry-run: 'true' # 🧪 No actual changes will be made
 ```
+
+## 🔗 Advisory Deduplication
+
+GitHub creates **one Dependabot alert per manifest entry** per advisory, which
+means the same vulnerability (e.g., `GHSA-jf85-cpcp-j695`) can produce multiple
+alerts for the same package across different version ranges or lock file
+entries. By default, this action creates one Jira issue per alert — which leads
+to duplicate tickets for the same underlying vulnerability.
+
+Enable `deduplicate-by-advisory` to group alerts by their advisory ID (GHSA or
+CVE) and create **one Jira issue per unique advisory** instead.
+
+### Configuration
+
+```yaml
+with:
+  # ... basic config ...
+  deduplicate-by-advisory: 'true'
+```
+
+### How It Works
+
+1. **Grouping**: After fetching alerts, the action groups them by GHSA ID (or
+   CVE ID as fallback). Alerts without any advisory identifier are processed
+   individually as usual.
+2. **Issue creation**: One Jira issue is created per advisory group. The summary
+   follows the format: `Advisory GHSA-xxxx [#1, #2, #3]: <advisory title>`. The
+   description lists all affected alerts with their package names, version
+   ranges, and GitHub links.
+3. **Severity**: The **highest** severity across all alerts in the group is used
+   for priority and due-date calculation.
+4. **Due date**: Calculated from the **earliest** alert creation date in the
+   group.
+5. **Updates**: When new alerts appear for an existing advisory, the Jira issue
+   summary is updated with the new alert IDs and a comment is added.
+6. **Auto-close**: An advisory issue is only closed when **all** alerts in the
+   group are resolved (fixed, dismissed, or deleted).
+
+### Example Log Output
+
+```
+🔗 Advisory deduplication enabled — grouping alerts by advisory ID
+Grouped 5 alerts into 2 advisory group(s) and 0 individual alert(s)
+Processing advisory GHSA-jf85-cpcp-j695 (3 alert(s): #1, #2, #3)
+✅ Created Jira issue SEC-200 for advisory GHSA-jf85-cpcp-j695
+Processing advisory GHSA-aaaa-bbbb-cccc (2 alert(s): #4, #5)
+✅ Created Jira issue SEC-201 for advisory GHSA-aaaa-bbbb-cccc
+```
+
+### Example Jira Issue (Deduplicated)
+
+```
+Summary: Advisory GHSA-jf85-cpcp-j695 [#1, #2, #3]: Prototype pollution in lodash
+
+Description:
+*Security Advisory: GHSA-jf85-cpcp-j695*
+
+*Severity:* CRITICAL
+*Affected Packages:* lodash, lodash-es
+*Ecosystem:* npm
+
+*Description:*
+Versions of lodash before 4.17.12 are vulnerable to Prototype Pollution.
+
+*CVSS Score:* 9.8
+*CVE ID:* CVE-2019-10744
+*GHSA ID:* GHSA-jf85-cpcp-j695
+
+---
+*Affected Alerts (3)*
+
+*Alert #1:* lodash (< 4.17.12) → 4.17.12
+*GitHub Alert URL:* https://github.com/company/repo/security/dependabot/1
+
+*Alert #2:* lodash (< 3.10.2) → 3.10.2
+*GitHub Alert URL:* https://github.com/company/repo/security/dependabot/2
+
+*Alert #3:* lodash-es (< 4.17.12) → 4.17.12
+*GitHub Alert URL:* https://github.com/company/repo/security/dependabot/3
+```
+
+### Migrating from Per-Alert Mode
+
+If you enable `deduplicate-by-advisory` on a project that already has per-alert
+Jira issues (summaries like `Dependabot Alert #42: ...`), the first run will
+create **new** advisory-style issues alongside the existing ones because the
+advisory search uses a different summary format. The old per-alert issues will
+be auto-closed naturally once their underlying alerts are resolved. No manual
+cleanup is required, but expect a brief overlap period.
 
 ## 🎯 Auto-Close Functionality
 

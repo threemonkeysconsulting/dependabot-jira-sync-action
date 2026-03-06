@@ -36,8 +36,13 @@ jest.unstable_mockModule('jsonwebtoken', () => ({
 }))
 
 // Import the functions we want to test
-const { getRepoInfo, getDependabotAlerts, parseAlert, getAlertStatus } =
-  await import('../src/github.js')
+const {
+  getRepoInfo,
+  getDependabotAlerts,
+  parseAlert,
+  getAlertStatus,
+  groupAlertsByAdvisory
+} = await import('../src/github.js')
 
 describe('GitHub API Functions', () => {
   beforeEach(() => {
@@ -306,6 +311,320 @@ describe('GitHub API Functions', () => {
       expect(result.dismissedAt).toBe('2023-01-05T00:00:00Z')
       expect(result.dismissedReason).toBe('tolerable_risk')
       expect(result.dismissedComment).toBe('Risk accepted by security team')
+    })
+  })
+
+  describe('groupAlertsByAdvisory', () => {
+    it('should group alerts sharing the same GHSA ID', () => {
+      const alerts = [
+        {
+          id: 1,
+          title: 'Vulnerability in lodash',
+          description: 'Prototype pollution',
+          severity: 'high',
+          package: 'lodash',
+          ecosystem: 'npm',
+          vulnerableVersionRange: '< 4.17.12',
+          firstPatchedVersion: '4.17.12',
+          cvss: 9.8,
+          cveId: 'CVE-2019-10744',
+          ghsaId: 'GHSA-jf85-cpcp-j695',
+          url: 'https://github.com/test/alert/1',
+          createdAt: '2023-01-10T00:00:00Z',
+          updatedAt: '2023-01-11T00:00:00Z',
+          state: 'open'
+        },
+        {
+          id: 2,
+          title: 'Vulnerability in lodash',
+          description: 'Prototype pollution',
+          severity: 'high',
+          package: 'lodash',
+          ecosystem: 'npm',
+          vulnerableVersionRange: '< 3.10.2',
+          firstPatchedVersion: '3.10.2',
+          cvss: 9.8,
+          cveId: 'CVE-2019-10744',
+          ghsaId: 'GHSA-jf85-cpcp-j695',
+          url: 'https://github.com/test/alert/2',
+          createdAt: '2023-01-09T00:00:00Z',
+          updatedAt: '2023-01-12T00:00:00Z',
+          state: 'open'
+        }
+      ]
+
+      const { advisoryGroups, ungroupedAlerts } = groupAlertsByAdvisory(alerts)
+
+      expect(advisoryGroups).toHaveLength(1)
+      expect(ungroupedAlerts).toHaveLength(0)
+
+      const group = advisoryGroups[0]
+      expect(group.isAdvisoryGroup).toBe(true)
+      expect(group.advisoryId).toBe('GHSA-jf85-cpcp-j695')
+      expect(group.alertIds).toEqual([1, 2])
+      expect(group.alerts).toHaveLength(2)
+      expect(group.severity).toBe('high')
+      expect(group.createdAt).toBe('2023-01-09T00:00:00Z')
+      expect(group.updatedAt).toBe('2023-01-12T00:00:00Z')
+    })
+
+    it('should use the highest severity from the group', () => {
+      const alerts = [
+        {
+          id: 1,
+          severity: 'medium',
+          ghsaId: 'GHSA-aaaa-bbbb-cccc',
+          cveId: null,
+          title: 'Vuln',
+          description: 'desc',
+          package: 'pkg-a',
+          ecosystem: 'npm',
+          vulnerableVersionRange: '< 1.0',
+          firstPatchedVersion: '1.0',
+          url: 'https://example.com/1',
+          createdAt: '2023-01-01T00:00:00Z',
+          updatedAt: '2023-01-01T00:00:00Z',
+          state: 'open'
+        },
+        {
+          id: 2,
+          severity: 'critical',
+          ghsaId: 'GHSA-aaaa-bbbb-cccc',
+          cveId: null,
+          title: 'Vuln',
+          description: 'desc',
+          package: 'pkg-b',
+          ecosystem: 'npm',
+          vulnerableVersionRange: '< 2.0',
+          firstPatchedVersion: '2.0',
+          url: 'https://example.com/2',
+          createdAt: '2023-01-02T00:00:00Z',
+          updatedAt: '2023-01-02T00:00:00Z',
+          state: 'open'
+        }
+      ]
+
+      const { advisoryGroups } = groupAlertsByAdvisory(alerts)
+
+      expect(advisoryGroups[0].severity).toBe('critical')
+    })
+
+    it('should separate alerts without advisory IDs into ungrouped', () => {
+      const alerts = [
+        {
+          id: 1,
+          ghsaId: 'GHSA-aaaa-bbbb-cccc',
+          cveId: null,
+          title: 'Vuln',
+          description: 'desc',
+          severity: 'high',
+          package: 'pkg',
+          ecosystem: 'npm',
+          vulnerableVersionRange: '< 1.0',
+          firstPatchedVersion: '1.0',
+          url: 'https://example.com/1',
+          createdAt: '2023-01-01T00:00:00Z',
+          updatedAt: '2023-01-01T00:00:00Z',
+          state: 'open'
+        },
+        {
+          id: 2,
+          ghsaId: null,
+          cveId: null,
+          title: 'No advisory',
+          description: 'desc',
+          severity: 'low',
+          package: 'unknown-pkg',
+          ecosystem: 'npm',
+          vulnerableVersionRange: 'unknown',
+          firstPatchedVersion: 'Not available',
+          url: 'https://example.com/2',
+          createdAt: '2023-01-01T00:00:00Z',
+          updatedAt: '2023-01-01T00:00:00Z',
+          state: 'open'
+        }
+      ]
+
+      const { advisoryGroups, ungroupedAlerts } = groupAlertsByAdvisory(alerts)
+
+      expect(advisoryGroups).toHaveLength(1)
+      expect(ungroupedAlerts).toHaveLength(1)
+      expect(ungroupedAlerts[0].id).toBe(2)
+    })
+
+    it('should fall back to CVE ID when GHSA ID is not available', () => {
+      const alerts = [
+        {
+          id: 1,
+          ghsaId: null,
+          cveId: 'CVE-2023-1234',
+          title: 'CVE vuln',
+          description: 'desc',
+          severity: 'high',
+          package: 'pkg',
+          ecosystem: 'npm',
+          vulnerableVersionRange: '< 1.0',
+          firstPatchedVersion: '1.0',
+          url: 'https://example.com/1',
+          createdAt: '2023-01-01T00:00:00Z',
+          updatedAt: '2023-01-01T00:00:00Z',
+          state: 'open'
+        },
+        {
+          id: 2,
+          ghsaId: null,
+          cveId: 'CVE-2023-1234',
+          title: 'CVE vuln',
+          description: 'desc',
+          severity: 'high',
+          package: 'pkg',
+          ecosystem: 'npm',
+          vulnerableVersionRange: '< 2.0',
+          firstPatchedVersion: '2.0',
+          url: 'https://example.com/2',
+          createdAt: '2023-01-02T00:00:00Z',
+          updatedAt: '2023-01-02T00:00:00Z',
+          state: 'open'
+        }
+      ]
+
+      const { advisoryGroups } = groupAlertsByAdvisory(alerts)
+
+      expect(advisoryGroups).toHaveLength(1)
+      expect(advisoryGroups[0].advisoryId).toBe('CVE-2023-1234')
+      expect(advisoryGroups[0].alertIds).toEqual([1, 2])
+    })
+
+    it('should create separate groups for different advisories', () => {
+      const alerts = [
+        {
+          id: 1,
+          ghsaId: 'GHSA-aaaa-bbbb-cccc',
+          cveId: null,
+          title: 'Vuln A',
+          description: 'desc',
+          severity: 'high',
+          package: 'pkg-a',
+          ecosystem: 'npm',
+          vulnerableVersionRange: '< 1.0',
+          firstPatchedVersion: '1.0',
+          url: 'https://example.com/1',
+          createdAt: '2023-01-01T00:00:00Z',
+          updatedAt: '2023-01-01T00:00:00Z',
+          state: 'open'
+        },
+        {
+          id: 2,
+          ghsaId: 'GHSA-dddd-eeee-ffff',
+          cveId: null,
+          title: 'Vuln B',
+          description: 'desc',
+          severity: 'medium',
+          package: 'pkg-b',
+          ecosystem: 'npm',
+          vulnerableVersionRange: '< 2.0',
+          firstPatchedVersion: '2.0',
+          url: 'https://example.com/2',
+          createdAt: '2023-01-01T00:00:00Z',
+          updatedAt: '2023-01-01T00:00:00Z',
+          state: 'open'
+        }
+      ]
+
+      const { advisoryGroups } = groupAlertsByAdvisory(alerts)
+
+      expect(advisoryGroups).toHaveLength(2)
+      expect(advisoryGroups[0].advisoryId).toBe('GHSA-aaaa-bbbb-cccc')
+      expect(advisoryGroups[1].advisoryId).toBe('GHSA-dddd-eeee-ffff')
+    })
+
+    it('should aggregate unique packages across grouped alerts', () => {
+      const alerts = [
+        {
+          id: 1,
+          ghsaId: 'GHSA-aaaa-bbbb-cccc',
+          cveId: null,
+          title: 'Vuln',
+          description: 'desc',
+          severity: 'high',
+          package: 'lodash',
+          ecosystem: 'npm',
+          vulnerableVersionRange: '< 4.17.12',
+          firstPatchedVersion: '4.17.12',
+          url: 'https://example.com/1',
+          createdAt: '2023-01-01T00:00:00Z',
+          updatedAt: '2023-01-01T00:00:00Z',
+          state: 'open'
+        },
+        {
+          id: 2,
+          ghsaId: 'GHSA-aaaa-bbbb-cccc',
+          cveId: null,
+          title: 'Vuln',
+          description: 'desc',
+          severity: 'high',
+          package: 'lodash-es',
+          ecosystem: 'npm',
+          vulnerableVersionRange: '< 4.17.12',
+          firstPatchedVersion: '4.17.12',
+          url: 'https://example.com/2',
+          createdAt: '2023-01-01T00:00:00Z',
+          updatedAt: '2023-01-01T00:00:00Z',
+          state: 'open'
+        }
+      ]
+
+      const { advisoryGroups } = groupAlertsByAdvisory(alerts)
+
+      expect(advisoryGroups[0].package).toBe('lodash, lodash-es')
+    })
+
+    it('should return empty results for empty input', () => {
+      const { advisoryGroups, ungroupedAlerts } = groupAlertsByAdvisory([])
+
+      expect(advisoryGroups).toHaveLength(0)
+      expect(ungroupedAlerts).toHaveLength(0)
+    })
+
+    it('should use earliest createdAt for the group', () => {
+      const alerts = [
+        {
+          id: 1,
+          ghsaId: 'GHSA-aaaa-bbbb-cccc',
+          cveId: null,
+          title: 'Vuln',
+          description: 'desc',
+          severity: 'high',
+          package: 'pkg',
+          ecosystem: 'npm',
+          vulnerableVersionRange: '< 1.0',
+          firstPatchedVersion: '1.0',
+          url: 'https://example.com/1',
+          createdAt: '2023-03-01T00:00:00Z',
+          updatedAt: '2023-03-01T00:00:00Z',
+          state: 'open'
+        },
+        {
+          id: 2,
+          ghsaId: 'GHSA-aaaa-bbbb-cccc',
+          cveId: null,
+          title: 'Vuln',
+          description: 'desc',
+          severity: 'high',
+          package: 'pkg',
+          ecosystem: 'npm',
+          vulnerableVersionRange: '< 2.0',
+          firstPatchedVersion: '2.0',
+          url: 'https://example.com/2',
+          createdAt: '2023-01-15T00:00:00Z',
+          updatedAt: '2023-01-15T00:00:00Z',
+          state: 'open'
+        }
+      ]
+
+      const { advisoryGroups } = groupAlertsByAdvisory(alerts)
+
+      expect(advisoryGroups[0].createdAt).toBe('2023-01-15T00:00:00Z')
     })
   })
 
