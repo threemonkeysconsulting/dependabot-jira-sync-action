@@ -57875,6 +57875,28 @@ function createJiraClient(jiraUrl, username, apiToken) {
   return client
 }
 
+const SEVERITY_TO_PRIORITY = {
+  critical: 'Highest',
+  high: 'High',
+  medium: 'Medium',
+  low: 'Low'
+};
+
+/**
+ * Resolve the Jira priority for an alert.
+ * When set to "auto", maps Dependabot severity to Jira priority.
+ * Any other value is returned as-is (static priority).
+ * @param {string} prioritySetting - The jira-priority input value
+ * @param {string} severity - Dependabot alert severity (critical, high, medium, low)
+ * @returns {string|null} Resolved Jira priority name, or null if it cannot be determined
+ */
+function resolvePriority(prioritySetting, severity) {
+  if (prioritySetting?.toLowerCase() !== 'auto') {
+    return prioritySetting || null
+  }
+  return SEVERITY_TO_PRIORITY[severity?.toLowerCase()] ?? null
+}
+
 /**
  * Calculate due date based on severity and alert creation date
  * @param {string} severity - Alert severity (critical, high, medium, low)
@@ -58199,8 +58221,9 @@ async function createJiraIssue(
   };
 
   // Priority is optional - only include if provided (some next-gen projects don't support it)
-  if (priority) {
-    issueData.fields.priority = { name: priority };
+  const resolvedPriority = resolvePriority(priority, alert.severity);
+  if (resolvedPriority) {
+    issueData.fields.priority = { name: resolvedPriority };
   }
 
   // Add labels if provided

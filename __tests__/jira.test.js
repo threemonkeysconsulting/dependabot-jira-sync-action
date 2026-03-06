@@ -34,6 +34,7 @@ jest.unstable_mockModule('axios', () => ({ default: mockAxios }))
 const {
   createJiraClient,
   calculateDueDate,
+  resolvePriority,
   findExistingIssue,
   createJiraIssue,
   updateJiraIssue,
@@ -196,6 +197,46 @@ describe('Jira API Functions', () => {
       const result = calculateDueDate('critical', dueDaysConfig)
 
       expect(result).toBe('2023-01-16') // 1 day from mock current date
+    })
+  })
+
+  describe('resolvePriority', () => {
+    it('should map critical severity to Highest when set to auto', () => {
+      expect(resolvePriority('auto', 'critical')).toBe('Highest')
+    })
+
+    it('should map high severity to High when set to auto', () => {
+      expect(resolvePriority('auto', 'high')).toBe('High')
+    })
+
+    it('should map medium severity to Medium when set to auto', () => {
+      expect(resolvePriority('auto', 'medium')).toBe('Medium')
+    })
+
+    it('should map low severity to Low when set to auto', () => {
+      expect(resolvePriority('auto', 'low')).toBe('Low')
+    })
+
+    it('should be case-insensitive for the auto keyword', () => {
+      expect(resolvePriority('Auto', 'critical')).toBe('Highest')
+      expect(resolvePriority('AUTO', 'high')).toBe('High')
+    })
+
+    it('should return null for unknown severity when set to auto', () => {
+      expect(resolvePriority('auto', 'unknown')).toBeNull()
+      expect(resolvePriority('auto', undefined)).toBeNull()
+    })
+
+    it('should pass through static priority values unchanged', () => {
+      expect(resolvePriority('High', 'low')).toBe('High')
+      expect(resolvePriority('Lowest', 'critical')).toBe('Lowest')
+      expect(resolvePriority('Medium', 'high')).toBe('Medium')
+    })
+
+    it('should return null for empty or falsy priority settings', () => {
+      expect(resolvePriority('', 'high')).toBeNull()
+      expect(resolvePriority(null, 'high')).toBeNull()
+      expect(resolvePriority(undefined, 'high')).toBeNull()
     })
   })
 
@@ -386,6 +427,60 @@ describe('Jira API Functions', () => {
       expect(issueData.fields.assignee).toBeUndefined()
       expect(issueData.fields.priority).toEqual({ name: 'Medium' })
       expect(issueData.fields.duedate).toBeDefined()
+    })
+
+    it('should resolve auto priority from alert severity', async () => {
+      const autoConfig = {
+        ...mockConfig,
+        priority: 'auto'
+      }
+
+      const mockResponse = { data: { key: 'SEC-125' } }
+      mockAxiosInstance.post.mockResolvedValue(mockResponse)
+
+      await createJiraIssue(mockAxiosInstance, autoConfig, mockAlert, false)
+
+      const issueData = mockAxiosInstance.post.mock.calls[0][1]
+      expect(issueData.fields.priority).toEqual({ name: 'Highest' })
+    })
+
+    it('should resolve auto priority for each severity level', async () => {
+      const autoConfig = { ...mockConfig, priority: 'auto' }
+      const mockResponse = { data: { key: 'SEC-126' } }
+
+      const cases = [
+        { severity: 'critical', expected: 'Highest' },
+        { severity: 'high', expected: 'High' },
+        { severity: 'medium', expected: 'Medium' },
+        { severity: 'low', expected: 'Low' }
+      ]
+
+      for (const { severity, expected } of cases) {
+        mockAxiosInstance.post.mockResolvedValue(mockResponse)
+        await createJiraIssue(
+          mockAxiosInstance,
+          autoConfig,
+          { ...mockAlert, severity },
+          false
+        )
+        const issueData =
+          mockAxiosInstance.post.mock.calls[
+            mockAxiosInstance.post.mock.calls.length - 1
+          ][1]
+        expect(issueData.fields.priority).toEqual({ name: expected })
+      }
+    })
+
+    it('should omit priority when auto and severity is unknown', async () => {
+      const autoConfig = { ...mockConfig, priority: 'auto' }
+      const unknownAlert = { ...mockAlert, severity: 'unknown' }
+      const mockResponse = { data: { key: 'SEC-127' } }
+      mockAxiosInstance.post.mockResolvedValue(mockResponse)
+
+      await createJiraIssue(mockAxiosInstance, autoConfig, unknownAlert, false)
+
+      const issueData = mockAxiosInstance.post.mock.calls[0][1]
+      expect(issueData.fields.priority).toBeUndefined()
     })
 
     it('should handle Jira API errors', async () => {

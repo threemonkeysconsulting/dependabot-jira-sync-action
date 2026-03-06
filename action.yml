@@ -52,7 +52,10 @@ inputs:
     required: false
     default: 'Bug'
   jira-priority:
-    description: 'Default Jira priority for issues'
+    description:
+      'Jira priority for created issues. Use "auto" to map from Dependabot
+      severity (critical→Highest, high→High, medium→Medium, low→Low), or specify
+      a static value (e.g. "High").'
     required: false
     default: 'Medium'
   jira-labels:
